@@ -2,6 +2,22 @@
 
 A local Python CLI for exploratory rhythm analysis of guitar audio and audio extracted from video.
 
+## Version 0.8.0 — listening-led event review
+
+Version 0.8.0 adds optional visual event maps to the v0.7 multi-detector report. The maps show a compact 20 ms peak-amplitude envelope for the full mix, HPSS harmonic component, and HPSS percussive component, with spectral-flux and Librosa onset detections overlaid.
+
+Run the full collection and create maps only for the manually annotated reference recordings:
+
+```bash
+python rhythm_event_validation.py ./recordings --recursive --plots --output ./guitar_rhythm_v080
+```
+
+Use `--plots-all` instead of `--plots` to create maps for every recording; this can produce hundreds of image files and substantially increase runtime. The output includes the v0.7 summary and event CSVs plus an `event_maps/` folder.
+
+The event maps are a human-review aid, not ground-truth annotations. They show detected event timing against the signal envelope, but do not establish which visible transient is a guitar attack, drum hit, or metronome click. Listen to the recording while inspecting the map. Compare the nine known reference examples first and add confidently unaccompanied controls before attempting source classification.
+
+Version 0.8.0 does not change the detection thresholds or automatically classify recordings. Keep prior v0.7 outputs as a separate baseline.
+
 ## Version 0.7.0 — multi-detector attack diagnostics
 
 Version 0.7.0 replaces the single-detector event report with a diagnostic comparison of two onset methods:
