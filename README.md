@@ -2,6 +2,14 @@
 
 A local Python CLI for exploratory rhythm analysis of guitar audio and audio extracted from video.
 
+## Version 0.4.0
+
+- Adds conservative rhythm-reference screening using harmonic/percussive source separation (HPSS), percussive transient timing, interval regularity, and independence from harmonic attacks.
+- Classifies each recording as likely external rhythm, possible external rhythm, no strong reference evidence, or unknown. The detector cannot prove source identity; strummed guitar and other playing techniques can also appear percussive.
+- Adds explicit fields for reference status/type/confidence, percussive event counts, interval CV, independence percentage, activity coverage, and self-paced eligibility.
+- Keeps all recordings in the master CSV/JSON/SQLite outputs and additionally exports `rhythm_reference_screening.csv`, `self_paced_candidates.csv`, `external_reference_candidates.csv`, and `reference_review_required.csv`.
+- Only high-confidence likely external-rhythm candidates are excluded from the self-paced candidate subset. Possible/unknown cases remain for review; no source audio is deleted.
+
 ## Version 0.3.1
 
 - Date resolution: embedded media creation timestamp via FFprobe, then date in filename (YYYY_MM_DD or YYYYMMDD), then filesystem modification time. Each row records date, year, and provenance so fallback dates can be reviewed.
@@ -24,7 +32,7 @@ pip install -r requirements.txt
 ## Run
 
 ```bash
-python guitar_rhythm_analyzer.py ./recordings --recursive --plots --output ./guitar_rhythm_v031
+python guitar_rhythm_analyzer.py ./recordings --recursive --plots --output ./guitar_rhythm_v040
 ```
 
 Self-paced is the default. `--reference-bpm` can record a known tempo but cannot provide independent beat phase. The legacy `--mode reference` option is retained for compatibility; it does not calculate grid accuracy.
@@ -39,11 +47,11 @@ Review fallback dates before longitudinal comparisons. Embedded tags may also be
 
 ## Outputs
 
-CSV and JSON measurements include recording date provenance, tempo windows, phrase summaries, and raw onset timestamps. SQLite retains versioned result rows. Optional plots are saved under `onset_plots/`; decode failures are listed in `analysis_errors.json`.
+CSV and JSON measurements include recording date provenance, tempo windows, phrase summaries, raw onset timestamps, and rhythm-reference screening. Version 0.4.0 also writes screening subsets for likely self-paced, likely external-reference, and manual-review recordings. SQLite retains versioned result rows. Optional plots are saved under `onset_plots/`; decode failures are listed in `analysis_errors.json`.
 
 ## Interpretation
 
-Onsets and phrase boundaries are heuristic. Within-phrase interval CV is affected by subdivision, syncopation, swing, arpeggiation, expressive timing, and recording conditions. Tempo windows can jump between half-time and double-time; tempo-window CV describes variation in estimated local tempo, not necessarily timing error.
+Rhythm-reference detection is a conservative heuristic, not source separation or proof of an external backing track. HPSS can classify guitar attacks as percussive; inspect candidates before drawing conclusions. Onsets and phrase boundaries are heuristic. Within-phrase interval CV is affected by subdivision, syncopation, swing, arpeggiation, expressive timing, and recording conditions. Tempo windows can jump between half-time and double-time; tempo-window CV describes variation in estimated local tempo, not necessarily timing error.
 
 No absolute synchronization accuracy is reported in 0.3.1. That would require a separate reference track or independently supplied beat timestamps including phase; BPM alone is insufficient.
 
