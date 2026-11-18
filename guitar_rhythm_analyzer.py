@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Guitar Rhythm Analyzer 0.2.0: phrase-aware exploratory timing analysis."""
+"""Guitar Rhythm Analyzer 0.3.1: date-aware longitudinal rhythm analysis."""
 from __future__ import annotations
-import argparse, csv, json, math, shutil, sqlite3, subprocess, sys, tempfile
+import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -11,7 +11,7 @@ import numpy as np
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.3.0'
+ANALYSIS_VERSION = '0.3.1'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -70,6 +70,46 @@ def phrase_groups(onsets: np.ndarray) -> tuple[list[np.ndarray],float]:
     return [g for g in np.split(onsets,cuts) if g.size],threshold
 
 
+def recording_date(path: Path) -> tuple[Optional[str], str]:
+    """Prefer embedded creation time, then filename date, then filesystem mtime."""
+    if shutil.which('ffprobe'):
+        try:
+            cmd=['ffprobe','-v','error','-show_entries','format_tags=creation_time:stream_tags=creation_time','-of','json',str(path)]
+            result=subprocess.run(cmd,capture_output=True,text=True,timeout=15)
+            if result.returncode == 0:
+                data=json.loads(result.stdout or '{}')
+                tags=dict(data.get('format',{}).get('tags',{}) or {})
+                for stream in data.get('streams',[]): tags.update(stream.get('tags',{}) or {})
+                raw=tags.get('creation_time')
+                if raw:
+                    dt=datetime.fromisoformat(raw.replace('Z','+00:00'))
+                    if dt.tzinfo is None: dt=dt.replace(tzinfo=timezone.utc)
+                    return dt.astimezone().isoformat(timespec='seconds'),'embedded_creation_time'
+        except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError): pass
+    for pattern in (r'(?<!\d)(20\d{2})[-_](\d{1,2})[-_](\d{1,2})(?!\d)',r'(?<!\d)(20\d{2})(\d{2})(\d{2})(?!\d)'):
+        m=re.search(pattern,path.stem)
+        if m:
+            try:
+                dt=datetime(int(m.group(1)),int(m.group(2)),int(m.group(3))).astimezone()
+                return dt.isoformat(timespec='seconds'),'filename_date'
+            except ValueError: pass
+    return datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec='seconds'),'file_modified_fallback'
+
+
+def tempo_windows(y: np.ndarray, sr: int, window_seconds: float=30.0, hop_seconds: float=15.0) -> list[dict]:
+    """Estimate local tempo in overlapping windows; not a ground-truth beat tracker."""
+    win=int(window_seconds*sr); step=int(hop_seconds*sr); hop=256
+    if len(y)<win: return []
+    out=[]
+    for start in range(0,len(y)-win+1,step):
+        env=librosa.onset.onset_strength(y=y[start:start+win],sr=sr,hop_length=hop,aggregate=np.median)
+        tempo,beats=librosa.beat.beat_track(onset_envelope=env,sr=sr,hop_length=hop,units='time')
+        bpm=float(np.asarray(tempo).reshape(-1)[0]) if np.asarray(tempo).size else None
+        if bpm and math.isfinite(bpm) and bpm>0:
+            out.append({'start_seconds':round(start/sr,2),'end_seconds':round((start+win)/sr,2),'tempo_bpm':round(bpm,2),'beat_count':int(len(beats))})
+    return out
+
+
 def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray], out: Path, stem: str) -> Optional[str]:
     try:
         import matplotlib
@@ -94,31 +134,27 @@ def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[n
         return f'PLOT_ERROR: {exc}'
 
 
-def pulse_analysis(y, sr, onsets, mode='auto', reference_bpm=None):
-    """Exploratory beat-grid alignment; not a validated timing test."""
+def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
+    """Estimate pulse regularity; do not fit an onset grid to the same performance."""
     hop=256
-    harmonic,percussive=librosa.effects.hpss(y)
-    env=librosa.onset.onset_strength(y=harmonic if mode=='reference' else y,sr=sr,hop_length=hop,aggregate=np.median)
-    ref_env=librosa.onset.onset_strength(y=percussive,sr=sr,hop_length=hop,aggregate=np.median)
-    rt,rb=librosa.beat.beat_track(onset_envelope=ref_env,sr=sr,hop_length=hop,units='time')
-    st,sb=librosa.beat.beat_track(onset_envelope=env,sr=sr,hop_length=hop,units='time')
-    scalar=lambda x: float(np.median(np.asarray(x,dtype=float))) if np.asarray(x).size else None
-    ref_bpm=scalar(rt); self_bpm=scalar(st); source='self_paced_beat_tracker'; confidence='estimated'
-    beats=np.asarray(sb,dtype=float); bpm=self_bpm
-    if reference_bpm is not None: bpm=float(reference_bpm); source='user_supplied_reference_bpm'; confidence='user_supplied'
-    elif mode=='reference':
-        bpm=ref_bpm; beats=np.asarray(rb,dtype=float); source='percussive_component_candidate'; confidence='candidate_only' if mode=='auto' else 'experimental_reference'
-    if bpm is None or bpm<=0 or len(onsets)<3:
-        return {'analysis_mode':mode,'pulse_source':source,'pulse_confidence':confidence,'pulse_bpm':bpm,'reference_candidate_bpm':ref_bpm,'self_paced_candidate_bpm':self_bpm,'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),'pulse_interval_cv_percent':None,'grid_subdivision':None,'onset_grid_median_abs_error_ms':None,'onset_grid_median_signed_error_ms':None,'onset_grid_p90_abs_error_ms':None,'onsets_within_50ms_percent':None,'grid_residuals_ms_json':'[]'}
-    period=60.0/bpm; candidates=[]
-    for div in (1,2,3,4):
-        step=period/div; ang=np.mod(onsets,step)/step*2*np.pi
-        phase=(np.angle(np.mean(np.exp(1j*ang)))%(2*np.pi))*step/(2*np.pi)
-        residual=((onsets-phase+step/2)%step)-step/2
-        candidates.append((np.median(np.abs(residual))+0.0005*(div-1),div,residual))
-    _,div,res=min(candidates,key=lambda x:x[0]); ab=np.abs(res); bi=np.diff(beats)
-    return {'analysis_mode':mode,'pulse_source':source,'pulse_confidence':confidence,'pulse_bpm':round(float(bpm),3),'reference_candidate_bpm':ref_bpm,'self_paced_candidate_bpm':self_bpm,'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),'pulse_interval_cv_percent':cv(bi) if len(bi) else None,'grid_subdivision':int(div),'onset_grid_median_abs_error_ms':round(float(np.median(ab))*1000,2),'onset_grid_median_signed_error_ms':round(float(np.median(res))*1000,2),'onset_grid_p90_abs_error_ms':round(float(np.quantile(ab,.9))*1000,2),'onsets_within_50ms_percent':round(float(np.mean(ab<=.05))*100,2),'grid_residuals_ms_json':json.dumps((res*1000).round(2).tolist())}
-def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, plot_dir: Optional[Path]=None, mode: str='auto', reference_bpm: Optional[float]=None) -> dict:
+    env=librosa.onset.onset_strength(y=y,sr=sr,hop_length=hop,aggregate=np.median)
+    bpm,beats=librosa.beat.beat_track(onset_envelope=env,sr=sr,hop_length=hop,units='time')
+    bpm=float(np.asarray(bpm).reshape(-1)[0]) if np.asarray(bpm).size else None
+    beats=np.asarray(beats,dtype=float)
+    if reference_bpm is not None: bpm=float(reference_bpm); source='user_supplied_reference_bpm'
+    else: source='self_paced_beat_tracker'
+    return {'analysis_mode':mode,'pulse_source':source,'pulse_confidence':'tempo_estimate_only',
+      'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
+      'reference_candidate_bpm':None,'self_paced_candidate_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
+      'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),
+      'pulse_interval_cv_percent':cv(np.diff(beats)) if len(beats)>1 else None,
+      'grid_subdivision':None,'onset_grid_median_abs_error_ms':None,
+      'onset_grid_median_signed_error_ms':None,'onset_grid_p90_abs_error_ms':None,
+      'onsets_within_50ms_percent':None,'grid_residuals_ms_json':'[]',
+      'grid_metric_status':'disabled_in_0.3.1_no_independent_reference_phase'}
+
+
+def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, plot_dir: Optional[Path]=None, mode: str='self-paced', reference_bpm: Optional[float]=None) -> dict:
     y,sr=load_recording(path)
     duration=float(librosa.get_duration(y=y,sr=sr))
     if duration+0.01 < min_duration:
@@ -130,6 +166,8 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     if onsets.size: onsets=onsets[np.r_[True,np.diff(onsets)>=0.045]]
     phrases,gap_threshold=phrase_groups(onsets)
     pulse_metrics=pulse_analysis(y,sr,onsets,mode,reference_bpm)
+    tempo_profile=tempo_windows(y,sr)
+    window_tempos=np.asarray([x['tempo_bpm'] for x in tempo_profile],dtype=float)
     all_intervals=np.diff(onsets)
     within=[]; phrase_stats=[]
     for index,p in enumerate(phrases,1):
@@ -152,10 +190,13 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     else:
         quality='usable'; quality_note='Review onset plot; quality label reflects data quantity only.'
     file_stat=path.stat()
+    recording_date_value,recording_date_source=recording_date(path)
     plot_path=plot_diagnostics(y,sr,onsets,phrases,plot_dir,path.stem) if plot_dir else None
     return {
       'filename':path.name,'path':str(path.resolve()),'media_type':'video' if path.suffix.lower() in VIDEO_EXTENSIONS else 'audio',
       'file_modified_local':datetime.fromtimestamp(file_stat.st_mtime).astimezone().isoformat(timespec='seconds'),
+      'recording_date':recording_date_value,'recording_date_source':recording_date_source,
+      'recording_year':int(recording_date_value[:4]) if recording_date_value else None,
       'duration_seconds':round(duration,3),'sample_rate_hz':sr,'detected_onsets':int(onsets.size),'usable_intervals':int(valid_all.size),
       'phrase_count':len(phrase_stats),'phrase_gap_threshold_seconds':round(gap_threshold,3),
       'within_phrase_interval_count':int(within_arr.size),'within_phrase_interval_cv_percent':cv(within_arr),
@@ -168,6 +209,9 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
       'estimated_tempo_median_bpm':finite(np.median(tempo)) if tempo.size else None,
       'estimated_tempo_sd_bpm':finite(np.std(tempo,ddof=1)) if tempo.size>1 else None,
       **pulse_metrics,
+      'tempo_window_seconds':30,'tempo_window_hop_seconds':15,
+      'tempo_windows_json':json.dumps(tempo_profile,separators=(',',':')),
+      'tempo_window_cv_percent':cv(window_tempos) if window_tempos.size>=3 else None,
       'quality_flag':quality,'quality_note':quality_note,'plot_path':plot_path,
       'phrase_details_json':json.dumps(phrase_stats,separators=(',',':')),
       'onset_times_seconds':json.dumps([round(float(t),4) for t in onsets]),
@@ -199,14 +243,14 @@ def discover_files(source: Path, recursive: bool) -> list[Path]:
 
 
 def main() -> int:
-    parser=argparse.ArgumentParser(description='Phrase-aware exploratory rhythm analysis for guitar audio/video.')
+    parser=argparse.ArgumentParser(description='Date-aware exploratory rhythm analysis for guitar audio/video.')
     parser.add_argument('input',type=Path,help='Media file or folder.')
     parser.add_argument('--recursive',action='store_true',help='Include nested folders.')
     parser.add_argument('--output',type=Path,default=Path('guitar_rhythm_results'))
     parser.add_argument('--min-duration',type=float,default=3.0,help='Minimum duration in seconds (default: 3).')
     parser.add_argument('--min-onsets',type=int,default=5,help='Onsets needed for a usable quality flag (default: 5).')
     parser.add_argument('--plots',action='store_true',help='Save waveform/onset diagnostic PNGs.')
-    parser.add_argument('--mode',choices=['auto','self-paced','reference'],default='auto',help='Pulse analysis mode.')
+    parser.add_argument('--mode',choices=['auto','self-paced','reference'],default='self-paced',help='Self-paced is the default; reference mode is retained for compatibility.')
     parser.add_argument('--reference-bpm',type=float,default=None,help='Known reference BPM.')
     args=parser.parse_args()
     if not args.input.exists():
