@@ -11,7 +11,7 @@ import numpy as np
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.3.1'
+ANALYSIS_VERSION = '0.4.0'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -108,6 +108,97 @@ def tempo_windows(y: np.ndarray, sr: int, window_seconds: float=30.0, hop_second
         if bpm and math.isfinite(bpm) and bpm>0:
             out.append({'start_seconds':round(start/sr,2),'end_seconds':round((start+win)/sr,2),'tempo_bpm':round(bpm,2),'beat_count':int(len(beats))})
     return out
+
+
+
+def detect_rhythm_reference(y: np.ndarray, sr: int, guitar_onsets: np.ndarray) -> dict:
+    """
+    Conservative screening for a likely independent rhythmic layer.
+
+    HPSS/percussive onset regularity is only indirect evidence: strummed guitar,
+    palm muting, tapping, and other playing techniques can also appear percussive.
+    Therefore this function never claims source identity and keeps ambiguous
+    recordings eligible only as 'unknown' rather than asserting self-paced.
+    """
+    result = {
+        'rhythm_reference_status': 'unknown',
+        'rhythm_reference_type': 'unknown',
+        'rhythm_reference_confidence': 'low',
+        'percussive_onset_count': 0,
+        'percussive_interval_cv_percent': None,
+        'percussive_events_independent_of_guitar_percent': None,
+        'percussive_activity_coverage_percent': None,
+        'self_paced_eligible': None,
+        'rhythm_reference_note': 'Insufficient evidence; manual review recommended.'
+    }
+    if len(y) < int(sr * 8):
+        result['rhythm_reference_note'] = 'Recording too short for conservative reference screening.'
+        return result
+    try:
+        harmonic, percussive = librosa.effects.hpss(y)
+        hop = 256
+        p_env = librosa.onset.onset_strength(y=percussive, sr=sr, hop_length=hop, aggregate=np.median)
+        h_env = librosa.onset.onset_strength(y=harmonic, sr=sr, hop_length=hop, aggregate=np.median)
+        p_frames = librosa.onset.onset_detect(onset_envelope=p_env, sr=sr, hop_length=hop,
+                                               backtrack=False, units='frames', wait=2)
+        h_frames = librosa.onset.onset_detect(onset_envelope=h_env, sr=sr, hop_length=hop,
+                                               backtrack=False, units='frames', wait=2)
+        p_times = np.asarray(librosa.frames_to_time(p_frames, sr=sr, hop_length=hop), dtype=float)
+        h_times = np.asarray(librosa.frames_to_time(h_frames, sr=sr, hop_length=hop), dtype=float)
+        if len(p_times):
+            p_times = p_times[np.r_[True, np.diff(p_times) >= 0.08]]
+        result['percussive_onset_count'] = int(len(p_times))
+        if len(p_times) < 8:
+            result['rhythm_reference_note'] = 'Too few distinct percussive transients for reliable screening.'
+            return result
+        intervals = np.diff(p_times)
+        plausible = intervals[(intervals >= 0.25) & (intervals <= 1.5)]
+        interval_cv = cv(plausible) if len(plausible) >= 6 else None
+        result['percussive_interval_cv_percent'] = round(interval_cv, 2) if interval_cv is not None else None
+
+        if len(h_times):
+            distances = np.min(np.abs(p_times[:, None] - h_times[None, :]), axis=1)
+            independent = distances > 0.075
+        elif len(guitar_onsets):
+            distances = np.min(np.abs(p_times[:, None] - guitar_onsets[None, :]), axis=1)
+            independent = distances > 0.075
+        else:
+            independent = np.ones(len(p_times), dtype=bool)
+        independent_pct = float(np.mean(independent) * 100)
+        result['percussive_events_independent_of_guitar_percent'] = round(independent_pct, 2)
+        duration = len(y) / sr
+        coverage = float((p_times[-1] - p_times[0]) / duration * 100) if len(p_times) > 1 and duration else 0.0
+        result['percussive_activity_coverage_percent'] = round(coverage, 2)
+
+        # High confidence is deliberately difficult to reach. This is a review
+        # flag, not proof that the percussion came from a separate backing track.
+        if interval_cv is not None and interval_cv <= 10 and independent_pct >= 40 and coverage >= 55 and len(p_times) >= 12:
+            result.update({
+                'rhythm_reference_status': 'likely_external_rhythm',
+                'rhythm_reference_type': 'regular_percussive_layer',
+                'rhythm_reference_confidence': 'high',
+                'self_paced_eligible': False,
+                'rhythm_reference_note': 'Regular percussive events continue independently of many harmonic attacks; review audio before exclusion.'
+            })
+        elif interval_cv is not None and interval_cv <= 20 and independent_pct >= 25 and coverage >= 35:
+            result.update({
+                'rhythm_reference_status': 'possible_external_rhythm',
+                'rhythm_reference_type': 'percussive_layer',
+                'rhythm_reference_confidence': 'medium',
+                'self_paced_eligible': None,
+                'rhythm_reference_note': 'Some evidence of a regular independent percussive layer; manual review required.'
+            })
+        else:
+            result.update({
+                'rhythm_reference_status': 'no_strong_reference_evidence',
+                'rhythm_reference_type': 'not_detected',
+                'rhythm_reference_confidence': 'low',
+                'self_paced_eligible': True,
+                'rhythm_reference_note': 'No strong independent rhythmic-layer evidence detected; this does not prove the recording is self-paced.'
+            })
+    except Exception as exc:
+        result['rhythm_reference_note'] = f'Reference screening failed: {exc}'
+    return result
 
 
 def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray], out: Path, stem: str) -> Optional[str]:
