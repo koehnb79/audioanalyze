@@ -11,7 +11,7 @@ import numpy as np
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.2.0'
+ANALYSIS_VERSION = '0.3.0'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -94,7 +94,31 @@ def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[n
         return f'PLOT_ERROR: {exc}'
 
 
-def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, plot_dir: Optional[Path]=None) -> dict:
+def pulse_analysis(y, sr, onsets, mode='auto', reference_bpm=None):
+    """Exploratory beat-grid alignment; not a validated timing test."""
+    hop=256
+    harmonic,percussive=librosa.effects.hpss(y)
+    env=librosa.onset.onset_strength(y=harmonic if mode=='reference' else y,sr=sr,hop_length=hop,aggregate=np.median)
+    ref_env=librosa.onset.onset_strength(y=percussive,sr=sr,hop_length=hop,aggregate=np.median)
+    rt,rb=librosa.beat.beat_track(onset_envelope=ref_env,sr=sr,hop_length=hop,units='time')
+    st,sb=librosa.beat.beat_track(onset_envelope=env,sr=sr,hop_length=hop,units='time')
+    scalar=lambda x: float(np.median(np.asarray(x,dtype=float))) if np.asarray(x).size else None
+    ref_bpm=scalar(rt); self_bpm=scalar(st); source='self_paced_beat_tracker'; confidence='estimated'
+    beats=np.asarray(sb,dtype=float); bpm=self_bpm
+    if reference_bpm is not None: bpm=float(reference_bpm); source='user_supplied_reference_bpm'; confidence='user_supplied'
+    elif mode=='reference' or (mode=='auto' and len(rb)>=4 and ref_bpm and 35<=ref_bpm<=240):
+        bpm=ref_bpm; beats=np.asarray(rb,dtype=float); source='percussive_component_candidate'; confidence='candidate_only' if mode=='auto' else 'experimental_reference'
+    if bpm is None or bpm<=0 or len(onsets)<3:
+        return {'analysis_mode':mode,'pulse_source':source,'pulse_confidence':confidence,'pulse_bpm':bpm,'reference_candidate_bpm':ref_bpm,'self_paced_candidate_bpm':self_bpm,'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),'pulse_interval_cv_percent':None,'grid_subdivision':None,'onset_grid_median_abs_error_ms':None,'onset_grid_median_signed_error_ms':None,'onset_grid_p90_abs_error_ms':None,'onsets_within_50ms_percent':None,'grid_residuals_ms_json':'[]'}
+    period=60.0/bpm; candidates=[]
+    for div in (1,2,3,4):
+        step=period/div; ang=np.mod(onsets,step)/step*2*np.pi
+        phase=(np.angle(np.mean(np.exp(1j*ang)))%(2*np.pi))*step/(2*np.pi)
+        residual=((onsets-phase+step/2)%step)-step/2
+        candidates.append((np.median(np.abs(residual))+0.0005*(div-1),div,residual))
+    _,div,res=min(candidates,key=lambda x:x[0]); ab=np.abs(res); bi=np.diff(beats)
+    return {'analysis_mode':mode,'pulse_source':source,'pulse_confidence':confidence,'pulse_bpm':round(float(bpm),3),'reference_candidate_bpm':ref_bpm,'self_paced_candidate_bpm':self_bpm,'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),'pulse_interval_cv_percent':cv(bi) if len(bi) else None,'grid_subdivision':int(div),'onset_grid_median_abs_error_ms':round(float(np.median(ab))*1000,2),'onset_grid_median_signed_error_ms':round(float(np.median(res))*1000,2),'onset_grid_p90_abs_error_ms':round(float(np.quantile(ab,.9))*1000,2),'onsets_within_50ms_percent':round(float(np.mean(ab<=.05))*100,2),'grid_residuals_ms_json':json.dumps((res*1000).round(2).tolist())}
+def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, plot_dir: Optional[Path]=None, mode: str='auto', reference_bpm: Optional[float]=None) -> dict:
     y,sr=load_recording(path)
     duration=float(librosa.get_duration(y=y,sr=sr))
     if duration+0.01 < min_duration:
@@ -105,6 +129,7 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     onsets=np.asarray(librosa.frames_to_time(frames,sr=sr,hop_length=hop),dtype=float)
     if onsets.size: onsets=onsets[np.r_[True,np.diff(onsets)>=0.045]]
     phrases,gap_threshold=phrase_groups(onsets)
+    pulse_metrics=pulse_analysis(y,sr,onsets,mode,reference_bpm)
     all_intervals=np.diff(onsets)
     within=[]; phrase_stats=[]
     for index,p in enumerate(phrases,1):
@@ -142,6 +167,7 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
       'median_inter_onset_seconds':finite(np.median(valid_all)) if valid_all.size else None,
       'estimated_tempo_median_bpm':finite(np.median(tempo)) if tempo.size else None,
       'estimated_tempo_sd_bpm':finite(np.std(tempo,ddof=1)) if tempo.size>1 else None,
+      **pulse_metrics,
       'quality_flag':quality,'quality_note':quality_note,'plot_path':plot_path,
       'phrase_details_json':json.dumps(phrase_stats,separators=(',',':')),
       'onset_times_seconds':json.dumps([round(float(t),4) for t in onsets]),
@@ -180,6 +206,8 @@ def main() -> int:
     parser.add_argument('--min-duration',type=float,default=3.0,help='Minimum duration in seconds (default: 3).')
     parser.add_argument('--min-onsets',type=int,default=5,help='Onsets needed for a usable quality flag (default: 5).')
     parser.add_argument('--plots',action='store_true',help='Save waveform/onset diagnostic PNGs.')
+    parser.add_argument('--mode',choices=['auto','self-paced','reference'],default='auto',help='Pulse analysis mode.')
+    parser.add_argument('--reference-bpm',type=float,default=None,help='Known reference BPM.')
     args=parser.parse_args()
     if not args.input.exists():
         print(f'Input path does not exist: {args.input}',file=sys.stderr); return 2
@@ -191,7 +219,7 @@ def main() -> int:
     for i,p in enumerate(files,1):
         print(f'[{i}/{len(files)}] {p}')
         try:
-            r=analyze_recording(p,args.min_duration,args.min_onsets,plot_dir); rows.append(r)
+            r=analyze_recording(p,args.min_duration,args.min_onsets,plot_dir,args.mode,args.reference_bpm); rows.append(r)
             cv_text=f"{r['within_phrase_interval_cv_percent']:.2f}%" if r['within_phrase_interval_cv_percent'] is not None else 'n/a'
             print(f"  {r['detected_onsets']} onsets; {r['phrase_count']} phrases; within-phrase CV {cv_text}; quality {r['quality_flag']}")
         except Exception as e:
