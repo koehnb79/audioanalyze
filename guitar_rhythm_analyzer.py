@@ -320,6 +320,25 @@ def save_results(rows: list[dict], output: Path) -> None:
     with (output/'rhythm_measurements.csv').open('w',newline='',encoding='utf-8') as f:
         w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(rows)
     (output/'rhythm_measurements.json').write_text(json.dumps(rows,indent=2),encoding='utf-8')
+    # Keep every recording in the master dataset, and emit transparent screening subsets.
+    screening_fields = [k for k in fields if k in {
+        'filename','recording_date','recording_year','duration_seconds',
+        'rhythm_reference_status','rhythm_reference_type','rhythm_reference_confidence',
+        'percussive_onset_count','percussive_interval_cv_percent',
+        'percussive_events_independent_of_guitar_percent',
+        'percussive_activity_coverage_percent','self_paced_eligible','rhythm_reference_note'
+    }]
+    screening = [{k:r.get(k) for k in screening_fields} for r in rows]
+    with (output/'rhythm_reference_screening.csv').open('w',newline='',encoding='utf-8') as f:
+        w=csv.DictWriter(f,fieldnames=screening_fields); w.writeheader(); w.writerows(screening)
+    for name, predicate in [
+        ('self_paced_candidates.csv', lambda r: r.get('self_paced_eligible') is True),
+        ('external_reference_candidates.csv', lambda r: r.get('self_paced_eligible') is False),
+        ('reference_review_required.csv', lambda r: r.get('self_paced_eligible') is None),
+    ]:
+        subset=[{k:r.get(k) for k in screening_fields} for r in rows if predicate(r)]
+        with (output/name).open('w',newline='',encoding='utf-8') as f:
+            w=csv.DictWriter(f,fieldnames=screening_fields); w.writeheader(); w.writerows(subset)
     with sqlite3.connect(output/'rhythm_history.sqlite') as db:
         db.execute('CREATE TABLE IF NOT EXISTS analysis_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, analyzed_at_utc TEXT NOT NULL, analysis_version TEXT NOT NULL, filename TEXT NOT NULL, result_json TEXT NOT NULL)')
         now=datetime.now(timezone.utc).isoformat(timespec='seconds')
