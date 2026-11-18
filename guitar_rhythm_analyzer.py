@@ -11,7 +11,7 @@ import numpy as np
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.3.1'
+ANALYSIS_VERSION = '0.9.0-dev'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -135,7 +135,7 @@ def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[n
 
 
 def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
-    """Estimate pulse regularity; do not fit an onset grid to the same performance."""
+    """Estimate internal pulse regularity from the beat track; exploratory, not ground truth."""
     hop=256
     env=librosa.onset.onset_strength(y=y,sr=sr,hop_length=hop,aggregate=np.median)
     bpm,beats=librosa.beat.beat_track(onset_envelope=env,sr=sr,hop_length=hop,units='time')
@@ -143,15 +143,58 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     beats=np.asarray(beats,dtype=float)
     if reference_bpm is not None: bpm=float(reference_bpm); source='user_supplied_reference_bpm'
     else: source='self_paced_beat_tracker'
-    return {'analysis_mode':mode,'pulse_source':source,'pulse_confidence':'tempo_estimate_only',
+
+    beat_intervals=np.diff(beats)
+    beat_intervals=beat_intervals[(beat_intervals>=0.25)&(beat_intervals<=2.0)]
+    beat_cv=cv(beat_intervals) if beat_intervals.size else None
+    beat_median=float(np.median(beat_intervals)) if beat_intervals.size else None
+    beat_mad_ms=(float(np.median(np.abs(beat_intervals-beat_median))*1000)
+                 if beat_intervals.size and beat_median is not None else None)
+
+    # Descriptive drift: slope of local beat intervals over elapsed time.
+    # This is not a phase-error measure and can reflect tempo changes or tracker errors.
+    drift_ms_per_min=None
+    if beat_intervals.size>=5 and len(beats)>=len(beat_intervals)+1:
+        interval_times=beats[1:][:len(beat_intervals)]
+        if len(interval_times)==len(beat_intervals):
+            drift_ms_per_min=float(np.polyfit(interval_times/60.0,beat_intervals*1000.0,1)[0])
+
+    duration=max(float(len(y))/sr,1e-9)
+    beat_coverage=(float((beats[-1]-beats[0])/duration*100)
+                   if len(beats)>=2 else None)
+    return {
+      'analysis_mode':mode,'pulse_source':source,'pulse_confidence':'tempo_estimate_only',
       'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'reference_candidate_bpm':None,'self_paced_candidate_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),
       'pulse_interval_cv_percent':cv(np.diff(beats)) if len(beats)>1 else None,
+      'beat_interval_count':int(beat_intervals.size),
+      'beat_interval_median_ms':round(beat_median*1000,3) if beat_median is not None else None,
+      'beat_interval_cv_percent':round(beat_cv,3) if beat_cv is not None else None,
+      'beat_interval_mad_ms':round(beat_mad_ms,3) if beat_mad_ms is not None else None,
+      'beat_interval_drift_ms_per_min':round(drift_ms_per_min,3) if drift_ms_per_min is not None else None,
+      'beat_tracker_coverage_percent':round(beat_coverage,2) if beat_coverage is not None else None,
       'grid_subdivision':None,'onset_grid_median_abs_error_ms':None,
       'onset_grid_median_signed_error_ms':None,'onset_grid_p90_abs_error_ms':None,
       'onsets_within_50ms_percent':None,'grid_residuals_ms_json':'[]',
-      'grid_metric_status':'disabled_in_0.3.1_no_independent_reference_phase'}
+      'grid_metric_status':'disabled_no_independent_phase_reference',
+      'pulse_metric_caveat':'Beat intervals are tracker estimates from the same recording; not independent timing ground truth.'}
+
+
+def load_recording_annotations(folder: Path) -> dict:
+    """Load optional human labels from recording_annotations.csv beside the script."""
+    annotation_path=Path(__file__).with_name('recording_annotations.csv')
+    labels={}
+    if annotation_path.exists():
+        with annotation_path.open(newline='',encoding='utf-8') as f:
+            for row in csv.DictReader(f):
+                name=(row.get('filename') or '').strip()
+                if name:
+                    context=(row.get('context') or 'uncertain').strip().lower()
+                    if context not in {'solo','accompaniment','uncertain'}:
+                        context='uncertain'
+                    labels[name]=(context,(row.get('notes') or '').strip())
+    return labels
 
 
 def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, plot_dir: Optional[Path]=None, mode: str='self-paced', reference_bpm: Optional[float]=None) -> dict:
@@ -190,10 +233,11 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     else:
         quality='usable'; quality_note='Review onset plot; quality label reflects data quantity only.'
     file_stat=path.stat()
+    annotation=load_recording_annotations(path.parent).get(path.name,('uncertain',''))
     recording_date_value,recording_date_source=recording_date(path)
     plot_path=plot_diagnostics(y,sr,onsets,phrases,plot_dir,path.stem) if plot_dir else None
     return {
-      'filename':path.name,'path':str(path.resolve()),'media_type':'video' if path.suffix.lower() in VIDEO_EXTENSIONS else 'audio',
+      'filename':path.name,'path':str(path.resolve()),'recording_context':annotation[0],'recording_context_notes':annotation[1],'media_type':'video' if path.suffix.lower() in VIDEO_EXTENSIONS else 'audio',
       'file_modified_local':datetime.fromtimestamp(file_stat.st_mtime).astimezone().isoformat(timespec='seconds'),
       'recording_date':recording_date_value,'recording_date_source':recording_date_source,
       'recording_year':int(recording_date_value[:4]) if recording_date_value else None,
