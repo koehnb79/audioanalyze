@@ -8,10 +8,11 @@ import json
 from pathlib import Path
 
 import librosa
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 ANNOTATION_FILE = Path(__file__).with_name("reference_annotations.csv")
 SR = 22050
 HOP = 256
@@ -211,11 +212,46 @@ def analyze(path: Path) -> tuple[dict, list[dict]]:
     return row, detail_rows
 
 
+
+def save_review_plot(path: Path, output_dir: Path, events: dict, label):
+    """Save a whole-recording event map for listening-led review."""
+    y, _ = librosa.load(path, sr=SR, mono=True)
+    harmonic, percussive = librosa.effects.hpss(y)
+    duration = len(y) / SR
+    signals = {"full": y, "harmonic": harmonic, "percussive": percussive}
+    fig, axes = plt.subplots(3, 1, figsize=(16, 9), sharex=True)
+    for ax, (component, signal) in zip(axes, signals.items()):
+        bin_size = max(1, int(SR * 0.02))
+        usable = (len(signal) // bin_size) * bin_size
+        envelope = np.max(np.abs(signal[:usable].reshape(-1, bin_size)), axis=1) if usable else np.array([])
+        x = (np.arange(len(envelope)) + 0.5) * bin_size / SR
+        ax.plot(x, envelope, linewidth=0.55, color="0.35", label="20 ms peak envelope")
+        for detector, color, marker in (("flux", "tab:blue", "|"), ("librosa", "tab:orange", "x")):
+            times = events[component + "_" + detector]
+            if len(times):
+                level = float(np.max(envelope) * 0.88) if len(envelope) else 0.0
+                ax.scatter(times, np.full(len(times), level), s=16, marker=marker,
+                           color=color, label=detector + " events")
+        ax.set_ylabel(component)
+        ax.grid(True, alpha=0.2)
+        ax.legend(loc="upper right", fontsize=8)
+    label_text = label[0] if label else "unannotated"
+    fig.suptitle(path.name + " — " + label_text)
+    axes[-1].set_xlabel("Time (seconds)")
+    axes[-1].set_xlim(0, duration)
+    fig.tight_layout()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_dir / (path.stem + "_event_map.png"), dpi=130)
+    plt.close(fig)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
     parser.add_argument("--recursive", action="store_true")
-    parser.add_argument("--output", type=Path, default=Path("guitar_rhythm_v070"))
+    parser.add_argument("--output", type=Path, default=Path("guitar_rhythm_v080"))
+    parser.add_argument("--plots", action="store_true", help="Create event maps for manually annotated recordings.")
+    parser.add_argument("--plots-all", action="store_true", help="Create event maps for every analyzed recording.")
     args = parser.parse_args()
     extensions = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".aiff", ".aif"}
     files = ([args.input] if args.input.is_file() else
@@ -228,6 +264,14 @@ def main() -> int:
             summary, event_rows = analyze(path)
             summaries.append(summary)
             details.extend(event_rows)
+            if args.plots_all or (args.plots and summary["listening_label"] != "unannotated"):
+                y, _ = librosa.load(path, sr=SR, mono=True)
+                harmonic, percussive = librosa.effects.hpss(y)
+                plot_events = {}
+                for component, signal in (("full", y), ("harmonic", harmonic), ("percussive", percussive)):
+                    plot_events[component + "_flux"] = detect_flux_events(signal)[0]
+                    plot_events[component + "_librosa"] = detect_librosa_events(signal)[0]
+                save_review_plot(path, args.output / "event_maps", plot_events, ANNOTATIONS.get(path.stem))
         except Exception as exc:
             errors.append({"filename": path.name, "error": str(exc)})
             print(f"  ERROR: {exc}")
