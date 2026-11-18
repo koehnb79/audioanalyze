@@ -2,6 +2,29 @@
 
 A local Python CLI for exploratory rhythm analysis of guitar audio and audio extracted from video.
 
+## Version 0.7.0 — multi-detector attack diagnostics
+
+Version 0.7.0 replaces the single-detector event report with a diagnostic comparison of two onset methods:
+
+- Positive spectral-flux peaks, using a recording-relative robust threshold.
+- Librosa's onset-strength/onset-detection pipeline.
+
+Both methods are applied to the full mix and the HPSS harmonic and percussive components. The report compares detector agreement, event density, inter-onset intervals, and harmonic/percussive timing relationships.
+
+A second event-level CSV, `rhythm_attack_events.csv`, contains per-event descriptors: spectral centroid, spectral flatness, spectral rolloff, local RMS peak, pre-event RMS, peak-to-pre-event ratio, and detector strength. These features can help identify why a transient detector responds differently to attacks, but they do not identify drums, metronomes, or guitar.
+
+The summary CSV is `rhythm_attack_summary.csv`; `analysis_errors.csv` records failures. The tool retains listening annotations and always leaves `algorithm_verdict` as `not_classified`.
+
+### Run v0.7.0
+
+```bash
+python rhythm_event_validation.py ./recordings --recursive --output ./guitar_rhythm_v070
+```
+
+Review the nine listening-reference recordings first. In particular, compare the two onset detectors on the same recording. If their event lists disagree substantially, timing statistics from either detector should be treated cautiously. HPSS components are not isolated instruments, spectral descriptors are not source labels, and events during low harmonic energy are not proof of an external rhythm source.
+
+The event CSV can be large because it contains one row per detected event. Keep the v0.6.0 report as a separate baseline; v0.7.0 does not overwrite it or alter the primary longitudinal analyzer.
+
 ## Version 0.6.0 — event-level rhythm diagnostics
 
 Version 0.6.0 adds a separate event-level analysis tool, `rhythm_event_validation.py`. It detects transient/onset events independently in the HPSS harmonic and percussive components, then reports:
