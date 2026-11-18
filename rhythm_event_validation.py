@@ -109,7 +109,7 @@ def nearest_distance(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.min(np.abs(a[:, None] - b[None, :]), axis=1)
 
 
-def summarize_times(times: np.ndarray, prefix: str) -> dict:
+def summarize_times(times: np.ndarray, prefix: str, duration: float) -> dict:
     intervals = np.diff(times)
     plausible = intervals[(intervals >= 0.08) & (intervals <= 2.5)]
     med = float(np.median(plausible)) if len(plausible) else None
@@ -119,7 +119,7 @@ def summarize_times(times: np.ndarray, prefix: str) -> dict:
         f"{prefix}_count": int(len(times)),
         f"{prefix}_median_interval_s": round(med, 4) if med is not None else None,
         f"{prefix}_interval_cv_pct": round(cv, 3) if cv is not None else None,
-        f"{prefix}_events_per_minute": round(len(times) * 60 / max((times[-1] if len(times) else 0), 1), 2),
+        f"{prefix}_events_per_minute": round(len(times) * 60 / max(duration, 1e-9), 2),
     }
 
 
@@ -153,7 +153,7 @@ def analyze(path: Path) -> tuple[dict, list[dict]]:
     row = {"filename": path.name, "stem": path.stem,
            "duration_seconds": round(duration, 3), "analysis_version": VERSION}
     for key, times in events.items():
-        row.update(summarize_times(times, key))
+        row.update(summarize_times(times, key, duration))
 
     # Detector agreement tests whether the onset list is method-dependent.
     for component in signals:
