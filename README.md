@@ -2,7 +2,9 @@
 
 A local Python command-line tool for exploratory rhythm analysis of guitar recordings. It accepts audio files and extracts audio tracks from video files; video frames are not analyzed.
 
-## Version 0.2.0
+## Version 0.3.0
+
+Version 0.3 adds exploratory pulse-grid analysis. It compares detected guitar/audio onsets with a beat grid estimated from the recording, and can optionally use a supplied reference BPM. Automatic percussive-component detection is only a candidate: guitar attacks can also appear in the percussive signal, so it must not be assumed to be a true drum/metronome track.
 
 This version is oriented toward short playing snippets. It adds heuristic phrase segmentation, within-phrase timing summaries, data-quality flags, optional onset diagnostic plots, an FFmpeg decoding fallback, and versioned SQLite result storage.
 
@@ -13,7 +15,7 @@ This version is oriented toward short playing snippets. It adds heuristic phrase
 - Phrase segmentation based on unusually long gaps between detected onsets.
 - Within-phrase interval variability, median phrase variability, and interval spread.
 - Legacy all-onset variability retained under an explicitly labelled field for comparison.
-- Estimated pulse tempo.
+- Estimated pulse tempo and beat-grid timing residuals (median, 90th percentile, signed offset, and share within 50 ms).\n- Candidate pulse estimates from the full mix and percussive component; source and confidence labels are retained.\n- Selectable `auto`, `self-paced`, and `reference` analysis modes, plus optional known reference BPM.
 - Optional waveform plots with detected onsets and within-phrase interval plots.
 - CSV, JSON, and SQLite exports; SQLite stores versioned JSON payloads to allow future schema changes.
 
@@ -57,10 +59,10 @@ python guitar_rhythm_analyzer.py ./recordings
 Include nested folders and generate diagnostic plots:
 
 ```bash
-python guitar_rhythm_analyzer.py ./recordings --recursive --plots
+python guitar_rhythm_analyzer.py ./recordings --recursive --plots --mode auto
 ```
 
-Choose an output directory:
+Choose a mode:\n\n```bash\n# Independent playing: infer a pulse from the recording itself\npython guitar_rhythm_analyzer.py ./recordings --mode self-paced\n\n# Recordings with drums/metronome: experimental percussive reference tracking\npython guitar_rhythm_analyzer.py ./recordings --mode reference\n\n# If you know the metronome BPM, supply it explicitly\npython guitar_rhythm_analyzer.py ./recordings --mode reference --reference-bpm 100\n```\n\nChoose an output directory:
 
 ```bash
 python guitar_rhythm_analyzer.py ./recordings --recursive --plots --output ./rhythm_results
@@ -100,7 +102,7 @@ File modification time is saved as metadata, not treated as the recording date. 
 
 **Tempo estimates** infer a pulse from onset strength. They may select half-time or double-time and are not equivalent to note-level timing accuracy.
 
-## Longitudinal use and limitations
+## Version 0.3 pulse-grid measurements\n\n`pulse_bpm` is the selected pulse estimate. `pulse_source` and `pulse_confidence` describe where it came from and how cautiously it should be interpreted. `grid_subdivision` is the tested number of equal subdivisions per beat. The grid residuals are the signed distance from each detected onset to its nearest inferred grid position; summary fields report median absolute error, signed median, 90th percentile absolute error, and percentage within 50 ms. These are alignment-to-an-inferred-grid measures, not absolute ground-truth accuracy.\n\nIn `auto` mode, a beat estimate from the percussive component is recorded as a candidate when available, but automatic detection cannot reliably prove that drums or a metronome are present. In `reference` mode, the percussive component is used experimentally. A supplied `--reference-bpm` overrides tempo selection but the grid phase is still inferred from detected onsets. For strongest external-reference measurements, a future iteration should support manually supplied reference beat timestamps or a separate reference audio track.\n\nFor self-paced playing, the inferred grid is derived from the same performance being measured. This can make residuals look artificially small; use them alongside tempo drift, beat-interval variability, onset plots, and comparable repeated passages rather than as a standalone score. The current pulse tracker does not yet separate guitar attacks from drum attacks.\n\n## Longitudinal use and limitations
 
 This is an exploratory audio-analysis tool, not a validated motor assessment or clinical/diagnostic instrument. Do not interpret any single metric as evidence of muscular decline or improvement. Microphone placement, instrument, strings, effects, recording quality, playing style, and musical material can all change the measurements.
 
