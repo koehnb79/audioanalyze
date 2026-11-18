@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import librosa
@@ -19,6 +21,45 @@ HOP = 256
 FRAME = 2048
 MIN_GAP = 0.075
 MATCH_TOLERANCE = 0.060
+
+
+def load_audio(path: Path) -> tuple[np.ndarray, int]:
+    """Load audio with Librosa, falling back to FFmpeg when necessary."""
+    try:
+        return load_audio(path)
+    except Exception as librosa_error:
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg is None:
+            raise RuntimeError(
+                f"Librosa could not decode {path.name}, and FFmpeg was not found on PATH."
+            ) from librosa_error
+
+        print(f"  Librosa couldn't decode {path.name}; trying FFmpeg...")
+        command = [
+            ffmpeg, "-v", "error", "-nostdin",
+            "-i", str(path),
+            "-map", "0:a:0", "-vn",
+            "-ac", "1", "-ar", str(SR),
+            "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1",
+        ]
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            error = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(
+                f"FFmpeg also failed to decode {path.name}: {error}"
+            ) from librosa_error
+
+        y = np.frombuffer(result.stdout, dtype="<f4").copy()
+        if y.size == 0:
+            raise RuntimeError(f"FFmpeg returned no audio samples for {path.name}")
+
+        print(f"  FFmpeg successfully decoded {path.name}")
+        return y, SR
 
 
 def load_annotations() -> dict:
@@ -125,7 +166,7 @@ def summarize_times(times: np.ndarray, prefix: str, duration: float) -> dict:
 
 
 def analyze(path: Path) -> tuple[dict, list[dict]]:
-    y, _ = librosa.load(path, sr=SR, mono=True)
+    y, _ = load_audio(path)
     if len(y) < SR * 5:
         raise ValueError("Recording shorter than five seconds")
     harmonic, percussive = librosa.effects.hpss(y)
@@ -215,7 +256,7 @@ def analyze(path: Path) -> tuple[dict, list[dict]]:
 
 def save_review_plot(path: Path, output_dir: Path, events: dict, label):
     """Save a whole-recording event map for listening-led review."""
-    y, _ = librosa.load(path, sr=SR, mono=True)
+    y, _ = load_audio(path)
     harmonic, percussive = librosa.effects.hpss(y)
     duration = len(y) / SR
     signals = {"full": y, "harmonic": harmonic, "percussive": percussive}
@@ -265,7 +306,7 @@ def main() -> int:
             summaries.append(summary)
             details.extend(event_rows)
             if args.plots_all or (args.plots and summary["listening_label"] != "unannotated"):
-                y, _ = librosa.load(path, sr=SR, mono=True)
+                y, _ = load_audio(path)
                 harmonic, percussive = librosa.effects.hpss(y)
                 plot_events = {}
                 for component, signal in (("full", y), ("harmonic", harmonic), ("percussive", percussive)):
