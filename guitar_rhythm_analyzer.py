@@ -106,7 +106,7 @@ def pulse_analysis(y, sr, onsets, mode='auto', reference_bpm=None):
     ref_bpm=scalar(rt); self_bpm=scalar(st); source='self_paced_beat_tracker'; confidence='estimated'
     beats=np.asarray(sb,dtype=float); bpm=self_bpm
     if reference_bpm is not None: bpm=float(reference_bpm); source='user_supplied_reference_bpm'; confidence='user_supplied'
-    elif mode=='reference' or (mode=='auto' and len(rb)>=4 and ref_bpm and 35<=ref_bpm<=240):
+    elif mode=='reference':
         bpm=ref_bpm; beats=np.asarray(rb,dtype=float); source='percussive_component_candidate'; confidence='candidate_only' if mode=='auto' else 'experimental_reference'
     if bpm is None or bpm<=0 or len(onsets)<3:
         return {'analysis_mode':mode,'pulse_source':source,'pulse_confidence':confidence,'pulse_bpm':bpm,'reference_candidate_bpm':ref_bpm,'self_paced_candidate_bpm':self_bpm,'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),'pulse_interval_cv_percent':None,'grid_subdivision':None,'onset_grid_median_abs_error_ms':None,'onset_grid_median_signed_error_ms':None,'onset_grid_p90_abs_error_ms':None,'onsets_within_50ms_percent':None,'grid_residuals_ms_json':'[]'}
