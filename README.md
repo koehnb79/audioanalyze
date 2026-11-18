@@ -2,6 +2,26 @@
 
 A local Python CLI for exploratory rhythm analysis of guitar audio and audio extracted from video.
 
+## Version 0.5.1 — richer rhythm diagnostics
+
+Version 0.5.1 improves the validation report without introducing an automatic source classifier.
+
+- Reports up to six distinct autocorrelation tempo candidates for the full mix, harmonic component, and percussive component, with relative strengths.
+- Adds an octave-family view that folds half/double-time candidates into a common 60–120 BPM comparison band. This helps expose metrical ambiguity; it does not decide which pulse a listener intended.
+- Stores overlapping 20-second window measurements for all three signal components, including each window's candidate octave family and periodicity strength.
+- Adds octave-folded window-to-window BPM variability and a descriptive measure of how often percussive periodicity strength exceeds harmonic periodicity strength.
+- Keeps manual listening labels separate and leaves `algorithm_verdict` as `not_classified`.
+
+The added measures are review aids, not evidence that a percussive signal is drums or a metronome. HPSS separates signal characteristics, not instruments. A guitar's own repeated strumming can produce strong periodicity; drums can be syncopated or masked; and the strongest autocorrelation peak may represent half-time, double-time, or a subdivision. Window CV is only meaningful when there are at least three valid windows.
+
+### Run v0.5.1
+
+```bash
+python rhythm_reference_validation.py ./recordings --recursive --output ./guitar_rhythm_v051_validation
+```
+
+Compare the new output against the manually annotated examples first. Preserve the previous v0.5.0 CSV as a baseline; do not replace it or use the new measurements to automatically filter the main longitudinal dataset.
+
 ## Version 0.5.0 — rhythm-reference validation
 
 Version 0.5.0 adds a separate exploratory validation tool. This is intentionally not another automatic metronome/drum classifier.
