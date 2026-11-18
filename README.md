@@ -1,18 +1,21 @@
 # Guitar Rhythm Analyzer
 
-A local Python command-line tool for exploratory rhythm analysis of guitar recordings.
-It accepts ordinary audio files and extracts the audio track from video files before
-analyzing it. Video frames are not analyzed.
+A local Python command-line tool for exploratory rhythm analysis of guitar recordings. It accepts audio files and extracts audio tracks from video files; video frames are not analyzed.
+
+## Version 0.2.0
+
+This version is oriented toward short playing snippets. It adds heuristic phrase segmentation, within-phrase timing summaries, data-quality flags, optional onset diagnostic plots, an FFmpeg decoding fallback, and versioned SQLite result storage.
 
 ## Features
 
 - Batch processing of audio and video recordings.
-- Onset (note/strum attack) detection and timestamp retention.
-- Inter-onset interval mean, median, standard deviation, median absolute deviation,
-  and coefficient of variation (CV).
-- Estimated pulse tempo and tempo variability.
-- Timing variability in the first, middle, and final thirds of each recording.
-- Export to CSV, JSON, and SQLite for historical comparisons.
+- Estimated onset timestamps retained in JSON and CSV.
+- Phrase segmentation based on unusually long gaps between detected onsets.
+- Within-phrase interval variability, median phrase variability, and interval spread.
+- Legacy all-onset variability retained under an explicitly labelled field for comparison.
+- Estimated pulse tempo.
+- Optional waveform plots with detected onsets and within-phrase interval plots.
+- CSV, JSON, and SQLite exports; SQLite stores versioned JSON payloads to allow future schema changes.
 
 ## Supported formats
 
@@ -20,13 +23,13 @@ Audio: WAV, MP3, FLAC, M4A, AAC, OGG, AIFF.
 
 Video: MP4, MOV, MKV, AVI, WebM, MPEG, MPG, M4V.
 
-Actual format support depends on the installed audio decoders and FFmpeg build.
+Actual support depends on installed decoders. FFmpeg is required for video and is also used as a fallback for audio files that the normal decoder cannot read.
 
 ## Requirements
 
 - Python 3.10–3.12 recommended.
-- FFmpeg installed and available as the `ffmpeg` command for video files.
-- Python packages listed in `requirements.txt`.
+- FFmpeg installed and available as `ffmpeg` for video and fallback decoding.
+- Python packages in `requirements.txt`.
 
 ### Install
 
@@ -45,71 +48,60 @@ pip install -r requirements.txt
 
 ### Run
 
-Analyze files in a folder:
+Analyze a folder (default minimum duration is now 3 seconds):
 
 ```bash
 python guitar_rhythm_analyzer.py ./recordings
 ```
 
-Include nested folders:
+Include nested folders and generate diagnostic plots:
 
 ```bash
-python guitar_rhythm_analyzer.py ./recordings --recursive
+python guitar_rhythm_analyzer.py ./recordings --recursive --plots
 ```
 
-Choose an output location:
+Choose an output directory:
 
 ```bash
-python guitar_rhythm_analyzer.py ./recordings --recursive --output ./rhythm_results
+python guitar_rhythm_analyzer.py ./recordings --recursive --plots --output ./rhythm_results
 ```
 
-Analyze one video:
+Analyze a single video:
 
 ```bash
-python guitar_rhythm_analyzer.py "./recordings/guitar_video.mp4"
+python guitar_rhythm_analyzer.py "./recordings/guitar_video.mp4" --plots
 ```
 
-Set the minimum media duration (default 8 seconds):
+Change the minimum duration or the onset-count threshold used for the quality flag:
 
 ```bash
-python guitar_rhythm_analyzer.py ./recordings --recursive --min-duration 5
+python guitar_rhythm_analyzer.py ./recordings --min-duration 2 --min-onsets 5
 ```
 
 ## Output
 
-The output folder contains:
+- `rhythm_measurements.csv` — measurements for spreadsheet analysis.
+- `rhythm_measurements.json` — structured results, phrase details, and detected onset timestamps.
+- `rhythm_history.sqlite` — append-only `analysis_runs` table with versioned JSON results.
+- `analysis_errors.json` — files that could not be analyzed.
+- `onset_plots/` — created when `--plots` is supplied; waveform/onset and phrase-interval plots.
 
-- `rhythm_measurements.csv` — convenient for Excel and spreadsheet analysis.
-- `rhythm_measurements.json` — structured results, including all detected onset times.
-- `rhythm_history.sqlite` — SQLite database; each run is appended as a new snapshot.
-- `analysis_errors.json` — created when files are skipped or fail to decode.
-
-The file modification timestamp is saved as metadata, not assumed to be the recording date.
-For reliable historical analysis, provide or maintain recording dates and playing-style
-labels in a future metadata workflow.
+File modification time is saved as metadata, not treated as the recording date. Use the recording date encoded in a filename or a separate metadata workflow for historical comparisons.
 
 ## Understanding the measurements
 
-**Onsets** are estimated moments at which new musical events begin. The detected events
-are not guaranteed to correspond one-to-one with played notes: chord attacks, pick noise,
-string resonance, and background instruments can affect detection.
+**Onsets** are estimated moments when new musical events begin. They are not guaranteed to correspond one-to-one with notes. Pick noise, chord attacks, resonance, and background instruments can affect detection.
 
-**Inter-onset interval (IOI)** is the elapsed time between successive detected attacks.
-Its standard deviation measures spread in seconds; its CV expresses spread relative to
-the average interval and can help compare different tempos.
+**Phrases** are estimated by splitting the onset sequence at gaps longer than an adaptive threshold. This is a practical heuristic, not a reliable understanding of musical phrasing. Inspect the plots and adjust interpretation accordingly.
 
-**Tempo estimates** infer a pulse from the onset-strength pattern. Automatic tempo
-estimation can choose half-time or double-time, and a local tempo estimate is not the
-same thing as note-level timing accuracy.
+**Within-phrase interval CV** describes the relative spread of detected intervals that fall inside the estimated phrases. It is less affected by long pauses than the legacy all-onset CV, but it is still affected by changes in subdivision, syncopation, swing, arpeggiation, and deliberate expressive timing. It is not a pure measure of rhythmic precision.
 
-## Limitations and responsible interpretation
+**Quality flag** is a simple data-quantity warning based on detected onset and interval counts. It is not a statistical confidence score and does not verify that the detected events are correct.
 
-This is version 0.1.0, an exploratory prototype. It is not a validated motor assessment
-or a clinical/diagnostic instrument. The measurements can be affected by musical style,
-rests, syncopation, swing, rubato, deliberate expressive timing, distortion, compression,
-noise, microphone placement, and changes in instrument or playing technique.
+**Tempo estimates** infer a pulse from onset strength. They may select half-time or double-time and are not equivalent to note-level timing accuracy.
 
-A simple IOI CV must not be interpreted as a pure measure of rhythmic ability. A future
-version should add onset visualization and manual correction, playing-style grouping,
-pattern-aware beat tracking, and confidence/quality indicators. For longitudinal work,
-compare similar passages and playing styles where possible, and retain the original media.
+## Longitudinal use and limitations
+
+This is an exploratory audio-analysis tool, not a validated motor assessment or clinical/diagnostic instrument. Do not interpret any single metric as evidence of muscular decline or improvement. Microphone placement, instrument, strings, effects, recording quality, playing style, and musical material can all change the measurements.
+
+For the strongest comparisons, group recordings by playing style (for example, repeated riff, strumming, fingerpicking, scale/exercise, or free improvisation) and compare similar passages where possible. Retain the original media and inspect diagnostic plots before drawing conclusions. Version 0.2 is a step toward better short-snippet analysis; manual onset correction and pattern-aware timing analysis remain future work.
