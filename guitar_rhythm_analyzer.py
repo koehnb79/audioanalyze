@@ -258,6 +258,7 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     phrases,gap_threshold=phrase_groups(onsets)
     pulse_metrics=pulse_analysis(y,sr,onsets,mode,reference_bpm)
     tempo_profile=tempo_windows(y,sr)
+    reference_metrics=detect_rhythm_reference(y,sr,onsets)
     window_tempos=np.asarray([x['tempo_bpm'] for x in tempo_profile],dtype=float)
     all_intervals=np.diff(onsets)
     within=[]; phrase_stats=[]
@@ -300,6 +301,7 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
       'estimated_tempo_median_bpm':finite(np.median(tempo)) if tempo.size else None,
       'estimated_tempo_sd_bpm':finite(np.std(tempo,ddof=1)) if tempo.size>1 else None,
       **pulse_metrics,
+      **reference_metrics,
       'tempo_window_seconds':30,'tempo_window_hop_seconds':15,
       'tempo_windows_json':json.dumps(tempo_profile,separators=(',',':')),
       'tempo_window_cv_percent':cv(window_tempos) if window_tempos.size>=3 else None,
