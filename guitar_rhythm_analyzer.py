@@ -144,8 +144,9 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     if reference_bpm is not None: bpm=float(reference_bpm); source='user_supplied_reference_bpm'
     else: source='self_paced_beat_tracker'
 
-    beat_intervals=np.diff(beats)
-    beat_intervals=beat_intervals[(beat_intervals>=0.25)&(beat_intervals<=2.0)]
+    all_beat_intervals=np.diff(beats)
+    valid_interval_mask=(all_beat_intervals>=0.25)&(all_beat_intervals<=2.0)
+    beat_intervals=all_beat_intervals[valid_interval_mask]
     beat_cv=cv(beat_intervals) if beat_intervals.size else None
     beat_median=float(np.median(beat_intervals)) if beat_intervals.size else None
     beat_mad_ms=(float(np.median(np.abs(beat_intervals-beat_median))*1000)
@@ -155,9 +156,8 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     # This is not a phase-error measure and can reflect tempo changes or tracker errors.
     drift_ms_per_min=None
     if beat_intervals.size>=5 and len(beats)>=len(beat_intervals)+1:
-        interval_times=beats[1:][:len(beat_intervals)]
-        if len(interval_times)==len(beat_intervals):
-            drift_ms_per_min=float(np.polyfit(interval_times/60.0,beat_intervals*1000.0,1)[0])
+        interval_times=beats[1:][valid_interval_mask]
+        drift_ms_per_min=float(np.polyfit(interval_times/60.0,beat_intervals*1000.0,1)[0])
 
     duration=max(float(len(y))/sr,1e-9)
     beat_coverage=(float((beats[-1]-beats[0])/duration*100)
