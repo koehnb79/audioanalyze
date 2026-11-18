@@ -2,6 +2,28 @@
 
 A local Python CLI for exploratory rhythm analysis of guitar audio and audio extracted from video.
 
+## Version 0.6.0 — event-level rhythm diagnostics
+
+Version 0.6.0 adds a separate event-level analysis tool, `rhythm_event_validation.py`. It detects transient/onset events independently in the HPSS harmonic and percussive components, then reports:
+
+- Event counts and event timestamps for each component.
+- Inter-onset interval median, median absolute deviation, coefficient of variation, and implied median pulse.
+- The proportion of percussive-component events occurring near a harmonic-component event (within 60 ms), versus events with no nearby harmonic event.
+- The proportion of percussive events occurring during the lower quartile of harmonic RMS energy.
+- Overlapping 20-second windows with event counts, percussive event density, and event coincidence.
+
+These are signal relationships, not instrument recognition. HPSS can place guitar strums in the percussive component, and guitar attacks can be detected independently from harmonic onsets. An event outside the 60 ms coincidence window is not thereby proven to be a drum or metronome. The lower-quartile energy measure is a coarse activity proxy, not a reliable guitar-silence detector.
+
+### Run v0.6.0
+
+```bash
+python rhythm_event_validation.py ./recordings --recursive --output ./guitar_rhythm_v060
+```
+
+It writes `rhythm_event_validation.csv` and `analysis_errors.csv`. The event report is separate from the v0.3/v0.4 longitudinal analyzer and v0.5 periodicity validation. It does not modify or filter the main dataset.
+
+Review the manually annotated examples first. In particular, compare the distributions of independent percussive events and their timing across the known drum, metronome, and likely-metronome recordings. If the measures do not separate these examples, do not use them as a source classifier.
+
 ## Version 0.5.1 — richer rhythm diagnostics
 
 Version 0.5.1 improves the validation report without introducing an automatic source classifier.
