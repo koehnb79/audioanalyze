@@ -15,16 +15,21 @@ import librosa
 import numpy as np
 
 VERSION = "0.5.0"
-ANNOTATIONS = {
-    "2020_06_09_13_52_21": ("metronome", "user_reported"),
-    "2020_09_23_15_41_26": ("drums", "user_reported"),
-    "2020_09_20_15_25_59": ("drums", "user_reported"),
-    "2020_07_23_20_30_40": ("drums", "user_reported"),
-    "2020_02_18_12_36_20": ("drums", "user_reported"),
-    "2020_01_17_19_05_08": ("drums", "user_reported"),
-    "2020_05_03_21_33_19": ("drums", "user_reported"),
-    "2020_09_22_15_42_23": ("metronome", "user_reported_likely"),
-}
+ANNOTATION_FILE = Path(__file__).with_name("reference_annotations.csv")
+
+
+def load_annotations() -> dict:
+    labels = {}
+    if ANNOTATION_FILE.exists():
+        with ANNOTATION_FILE.open(newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                labels[row["filename_stem"]] = (
+                    row["manual_label"], row["label_source"]
+                )
+    return labels
+
+
+ANNOTATIONS = load_annotations()
 
 
 def safe_cv(values: np.ndarray) -> float | None:
