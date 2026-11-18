@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+guitar_rhythm_results/
+*.sqlite
+.DS_Store
