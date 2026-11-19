@@ -157,7 +157,7 @@ def pulse_autocorrelation_candidates(env: np.ndarray, sr: int, hop: int=256,
         return []
     peaks=[]
     for lag in range(min_lag+1,max_lag):
-        if ac[lag] >= ac[lag-1] and ac[lag] > ac[lag+1]:
+        if ac[lag] > 0.0 and ac[lag] >= ac[lag-1] and ac[lag] > ac[lag+1]:
             peaks.append((float(ac[lag]),lag))
     peaks.sort(reverse=True)
     selected=[]
