@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guitar Rhythm Analyzer 0.9.2-dev: local pulse and mathematical-grid diagnostics."""
+"""Guitar Rhythm Analyzer 0.9.3.1-dev: local pulse and mathematical-grid diagnostics."""
 from __future__ import annotations
 import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Optional
 import librosa
 import numpy as np
+from local_grid_analysis import analyze_local_grid
 
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.9.2-dev'
+ANALYSIS_VERSION = '0.9.3.1-dev'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -249,8 +250,10 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     beat_coverage=(float((beats[-1]-beats[0])/duration*100)
                    if len(beats)>=2 else None)
     grid_metrics=fitted_grid_metrics(onsets,beats)
+    local_grid_metrics=analyze_local_grid(onsets,beats)
     return {
       **grid_metrics,
+      **local_grid_metrics,
       'analysis_mode':mode,'pulse_source':source,'pulse_confidence':'tempo_estimate_only',
       'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'reference_candidate_bpm':None,'self_paced_candidate_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
@@ -266,7 +269,7 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
       'beat_interval_drift_ms_per_min':round(drift_ms_per_min,3) if drift_ms_per_min is not None else None,
       'beat_tracker_time_span_percent':round(beat_coverage,2) if beat_coverage is not None else None,
       'beat_tracker_coverage_percent':round(beat_coverage,2) if beat_coverage is not None else None,
-      'pulse_metric_caveat':'Beat-grid residuals are fitted to the beat tracker output from this same recording; onset residuals use quarter-beat subdivisions and are sensitive to missed/extra onsets and beat interpretation. These are mathematical-fit measures, not independent ground-truth timing errors. Autocorrelation candidates are alternative periodicities, not confirmed beats. beat_tracker_coverage_percent is retained for compatibility but actually means time span between first and last detected beats.'}
+      'pulse_metric_caveat':'Legacy beat-grid residuals are retained for v0.9.2 comparisons. The v0.9.3 local-grid event report provides overlapping-window estimates, explicit beat/subdivision identities, and signed residuals. Both remain anchored to beat tracking from this recording rather than an independent external clock. Autocorrelation candidates are alternative periodicities, not confirmed beats. beat_tracker_coverage_percent is retained for compatibility but actually means time span between first and last detected beats.'}
 
 
 def load_recording_annotations(folder: Path) -> dict:
