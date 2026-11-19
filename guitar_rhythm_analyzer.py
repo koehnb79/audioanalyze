@@ -11,7 +11,7 @@ import numpy as np
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.9.0-dev'
+ANALYSIS_VERSION = '0.9.1-dev'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
