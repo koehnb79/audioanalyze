@@ -181,6 +181,7 @@ def analyze_local_grid(
         for left, right in zip(beat_numbers[:-1], beat_numbers[1:]):
             if right - left > 1:
                 beat_gaps.update(range(int(left + 1), int(right)))
+        window["missing_beat_indices"] = sorted(beat_gaps)
         for event_idx in local_events_idx:
             assigned = _assign_event(float(onsets[event_idx]), fit)
             assigned["missing_beat_flag"] = assigned["beat_index"] in beat_gaps
@@ -231,7 +232,10 @@ def analyze_local_grid(
             label: sum(e["subdivision"] == label for e in events)
             for label in SUBDIVISIONS.values()
         },
-        "missing_beat_count_estimate": int(sum(w["missing_beat_count"] for w in windows)),
+        "missing_beat_count_estimate": int(len({
+            beat_index for window in windows
+            for beat_index in window.get("missing_beat_indices", [])
+        })),
         "tempo_change_window_count": int(sum(w["tempo_change_flag"] for w in windows)),
         "ambiguous_window_count": int(sum(w["half_double_time_ambiguous"] for w in windows)),
     }
