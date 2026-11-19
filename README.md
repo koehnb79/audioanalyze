@@ -2,7 +2,7 @@
 
 A local Python CLI for exploratory rhythm analysis of guitar audio and audio extracted from video.
 
-## Version 0.9.0-dev (internal rhythm analysis)
+## Version 0.9.2-dev (local pulse and grid diagnostics)
 
 - Date resolution: embedded media creation timestamp via FFprobe, then date in filename (YYYY_MM_DD or YYYYMMDD), then filesystem modification time. Each row records date, year, and provenance so fallback dates can be reviewed.
 - Self-paced pulse estimation is now the default. Percussive audio is no longer assumed to be an independent drum/metronome reference.
@@ -94,3 +94,15 @@ The autocorrelation and beat tracker both analyze the same audio, so agreement b
 them is not independent validation. Listening, manual beat annotation, and a separate
 pulse-reference test are still needed before making strong claims about rhythmic
 improvement.
+
+
+## v0.9.2-dev local pulse and mathematical-grid diagnostics
+
+- Each overlapping 30-second tempo window now includes ranked onset-envelope autocorrelation periodicity candidates, exposing local half-time/double-time alternatives.
+- Beat timestamps are fitted to a constant-period grid by least squares. The analyzer reports beat-grid residuals (median absolute, median signed, 90th percentile absolute, within 50 ms) and retains the residual series.
+- Detected guitar onsets are also compared with quarter-beat subdivisions of that fitted grid, with the same summary statistics and raw residual series.
+- Grid fitting is performed per recording across the detected beat track; local candidate profiles are retained per window to help identify tempo-interpretation changes.
+
+**Important interpretation limit:** the beat grid is fitted to the beat track detected from the same audio. It is therefore a mathematical consistency measure of the algorithm's beat sequence, not an independent external clock and not proof of absolute timing accuracy. Onset-to-quarter-grid results depend on onset detection and the chosen beat/subdivision interpretation; missed notes, extra transients, and syncopated attacks can affect them. Do not interpret these fields as clinical measurements. The purpose is to consistently quantify deviation from an idealized grid under a fixed algorithm, then compare like with like over time.
+
+New v0.9.2 fields include `fitted_grid_bpm`, `beat_grid_*`, `onset_quarter_grid_*`, `grid_fit_status`, and per-window `autocorrelation_candidates`.
