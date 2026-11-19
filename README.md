@@ -68,3 +68,29 @@ Onsets and phrase boundaries are heuristic. Within-phrase interval CV is affecte
 No absolute synchronization accuracy is reported in 0.3.1. That would require a separate reference track or independently supplied beat timestamps including phase; BPM alone is insufficient.
 
 This is exploratory audio analysis, not a validated motor assessment or clinical/diagnostic instrument. Compare similar passages and inspect diagnostic plots rather than interpreting a single metric as evidence of decline or improvement.
+
+
+## v0.9.1-dev pulse diagnostics
+
+This branch adds onset-envelope autocorrelation candidates alongside the Librosa beat
+tracker. The candidates expose alternative periodicities and possible half-time or
+double-time interpretations; they are not confirmed beat labels or ground truth.
+
+New fields:
+- `pulse_autocorrelation_candidates_json`: ranked periodicity candidates with BPM,
+  period, and normalized autocorrelation.
+- `pulse_autocorrelation_top_bpm`: strongest autocorrelation candidate.
+- `tracker_vs_autocorrelation_octave_adjusted_difference_percent`: difference between
+  the beat track and strongest autocorrelation candidate after allowing half/double-time
+  equivalence.
+- `beat_tracker_time_span_percent`: elapsed recording span between first and last
+  detected beats, expressed as a percentage of recording duration.
+
+The old `beat_tracker_coverage_percent` field remains for compatibility, but it is
+only a time-span measure, not a measure of tracker accuracy. Pulse intervals are filtered
+to the supported 0.25–2.0 second range before calculating the pulse-interval CV.
+
+The autocorrelation and beat tracker both analyze the same audio, so agreement between
+them is not independent validation. Listening, manual beat annotation, and a separate
+pulse-reference test are still needed before making strong claims about rhythmic
+improvement.
