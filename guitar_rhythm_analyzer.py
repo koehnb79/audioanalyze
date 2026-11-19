@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guitar Rhythm Analyzer 0.3.1: date-aware longitudinal rhythm analysis."""
+"""Guitar Rhythm Analyzer 0.9.2-dev: local pulse and mathematical-grid diagnostics."""
 from __future__ import annotations
 import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
