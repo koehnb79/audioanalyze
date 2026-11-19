@@ -77,13 +77,14 @@ def _fit_local_grid(beats: np.ndarray) -> dict | None:
         if right - left > 1:
             missing.append(int(right - left - 1))
 
-    octave_ambiguous = missed_fraction >= 0.15 or bool(missing)
+    # Missing tracker beats and octave ambiguity are distinct observations.
+    # Only a near-equivalent competing period can establish octave ambiguity.
     competing = [
         p for p, c, _ in candidates[1:]
-        if 1.8 <= p / period <= 2.2 and c <= cost + 0.08
-        or 1.8 <= period / p <= 2.2 and c <= cost + 0.08
+        if ((1.8 <= p / period <= 2.2) or
+            (1.8 <= period / p <= 2.2)) and c <= cost + 0.08
     ]
-    octave_ambiguous = octave_ambiguous or bool(competing)
+    octave_ambiguous = bool(competing)
     return {
         "period_seconds": period,
         "bpm": 60.0 / period,
@@ -95,25 +96,41 @@ def _fit_local_grid(beats: np.ndarray) -> dict | None:
     }
 
 
-def _assign_event(onset: float, grid: dict) -> dict:
+def _assign_event(onset: float, grid: dict, tolerance_ms: float = 18.0) -> dict:
+    """Assign the coarsest supported subdivision within a fixed timing tolerance.
+
+    The finest grid is retained as a diagnostic candidate, but is not automatically
+    selected merely because it produces a smaller residual.
+    """
     period = grid["period_seconds"]
     phase = grid["phase_seconds"]
-    best = None
-    # Evaluate all supported musical subdivisions. Finer subdivisions are not
-    # silently assumed: their identity is returned for every event.
+    candidates = []
     for count, label in SUBDIVISIONS.items():
         step = period / count
         index = int(np.rint((onset - phase) / step))
         predicted = phase + index * step
         residual = (onset - predicted) * 1000.0
-        candidate = (abs(residual), count, predicted, residual, index, label)
-        # On equal residuals prefer the coarser (musically simpler) subdivision.
-        if best is None or candidate[:2] < best[:2]:
-            best = candidate
-    _, count, predicted, residual, index, label = best
+        candidates.append({
+            "count": count, "label": label, "predicted": predicted,
+            "residual": residual, "index": index,
+        })
+
+    # Select the least complex grid that explains this event to within the
+    # declared tolerance. If none does, retain the best candidate but call it
+    # off-grid rather than silently promoting it to a very fine subdivision.
+    selected = next((c for c in candidates
+                     if abs(c["residual"]) <= tolerance_ms), None)
+    best = min(candidates, key=lambda c: abs(c["residual"]))
+    chosen = selected or best
+    count = chosen["count"] if selected else 0
+    label = chosen["label"] if selected else "off-grid"
+    predicted = chosen["predicted"]
+    residual = chosen["residual"]
     beat_index = int(math.floor((predicted - phase) / period + 1e-8))
-    subdivision_index = int(round((predicted - (phase + beat_index * period)) /
-                                  (period / count))) if count > 1 else 0
+    subdivision_index = (int(round(
+        (predicted - (phase + beat_index * period)) /
+        (period / count))) if count > 1 else 0)
+
     return {
         "onset_seconds": round(float(onset), 6),
         "predicted_grid_seconds": round(float(predicted), 6),
@@ -123,17 +140,24 @@ def _assign_event(onset: float, grid: dict) -> dict:
         "subdivision": label,
         "subdivisions_per_beat": count,
         "subdivision_index": subdivision_index,
+        "subdivision_tolerance_ms": float(tolerance_ms),
+        "subdivision_assignment_confident": bool(selected),
+        "best_candidate_subdivision": best["label"],
+        "best_candidate_residual_ms": round(float(best["residual"]), 3),
+        "candidate_residuals_ms": {
+            c["label"]: round(float(c["residual"]), 3) for c in candidates
+        },
         "beat_confidence": "estimated",
         "missing_beat_flag": False,
         "half_double_time_ambiguity_flag": grid["half_double_time_ambiguous"],
     }
-
 
 def analyze_local_grid(
     onset_times: Iterable[float],
     beat_times: Iterable[float],
     window_seconds: float = 12.0,
     hop_seconds: float = 6.0,
+    subdivision_tolerance_ms: float = 18.0,
 ) -> dict:
     """Analyze events against overlapping, locally fitted pulse grids."""
     onsets = np.sort(_finite_array(onset_times))
@@ -183,7 +207,8 @@ def analyze_local_grid(
                 beat_gaps.update(range(int(left + 1), int(right)))
         window["missing_beat_indices"] = sorted(beat_gaps)
         for event_idx in local_events_idx:
-            assigned = _assign_event(float(onsets[event_idx]), fit)
+            assigned = _assign_event(float(onsets[event_idx]), fit,
+                                     tolerance_ms=subdivision_tolerance_ms)
             assigned["missing_beat_flag"] = assigned["beat_index"] in beat_gaps
             assigned["missing_beats_before_nearby"] = any(
                 0 < assigned["beat_index"] - missing <= 1 for missing in beat_gaps
@@ -229,9 +254,15 @@ def analyze_local_grid(
         "within_50ms_percent": round(float(np.mean(abs_residuals <= 50.0) * 100), 2),
         "raw_signed_residuals_ms": np.round(residuals, 3).tolist(),
         "subdivision_counts": {
-            label: sum(e["subdivision"] == label for e in events)
-            for label in SUBDIVISIONS.values()
+            **{label: sum(e["subdivision"] == label for e in events)
+               for label in SUBDIVISIONS.values()},
+            "off-grid": sum(e["subdivision"] == "off-grid" for e in events),
         },
+        "event_coverage_percent": round(
+            float(len(events) / onsets.size * 100.0), 2
+        ),
+        "unassigned_event_count": int(onsets.size - len(events)),
+        "subdivision_tolerance_ms": 18.0,
         "missing_beat_count_estimate": int(len({
             beat_index for window in windows
             for beat_index in window.get("missing_beat_indices", [])
@@ -243,6 +274,7 @@ def analyze_local_grid(
         "local_grid_status": "analyzed",
         "local_grid_window_seconds": float(window_seconds),
         "local_grid_hop_seconds": float(hop_seconds),
+        "subdivision_tolerance_ms": float(subdivision_tolerance_ms),
         "local_grid_windows": windows,
         "local_grid_events": events,
         "local_grid_summary": summary,
