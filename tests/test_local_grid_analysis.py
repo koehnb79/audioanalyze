@@ -23,9 +23,9 @@ class LocalGridTests(unittest.TestCase):
         offsets = np.resize(np.array([0.020, -0.030, 0.045, -0.010]), beats.size)
         onsets = beats + offsets
         result = analyze_local_grid(onsets, beats, window_seconds=12, hop_seconds=6)
-        residuals = result["local_grid_summary"]["raw_signed_residuals_ms"]
+        residuals = result["local_grid_summary"]["raw_beat_grid_signed_residuals_ms"]
         self.assertEqual(len(residuals), len(onsets))
-        self.assertGreater(max(residuals), 15.0)
+        self.assertGreater(max(residuals), 40.0)
         self.assertLess(min(residuals), -25.0)
 
     def test_missing_beats_are_detected_without_stretching_local_period(self):
