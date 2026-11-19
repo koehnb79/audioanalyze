@@ -34,6 +34,7 @@ class LocalGridTests(unittest.TestCase):
         onsets = complete
         result = analyze_local_grid(onsets, detected, window_seconds=12, hop_seconds=6)
         self.assertGreater(result["local_grid_summary"]["missing_beat_count_estimate"], 0)
+        self.assertTrue(any(e["missing_beat_flag"] for e in result["local_grid_events"]))
 
     def test_tempo_change_is_localized(self):
         first = np.arange(24) * 0.5
@@ -50,6 +51,7 @@ class LocalGridTests(unittest.TestCase):
         detected = np.delete(complete, np.arange(1, 40, 3))
         result = analyze_local_grid(complete, detected, window_seconds=12, hop_seconds=6)
         self.assertGreater(result["local_grid_summary"]["ambiguous_window_count"], 0)
+        self.assertTrue(all("half_double_time_ambiguous" in w for w in result["local_grid_windows"]))
 
     def test_subdivision_identity_and_raw_event_fields_are_present(self):
         beats = beat_grid(count=30)
