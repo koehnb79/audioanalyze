@@ -11,7 +11,7 @@ import numpy as np
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.9.1-dev'
+ANALYSIS_VERSION = '0.9.2-dev'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -105,8 +105,11 @@ def tempo_windows(y: np.ndarray, sr: int, window_seconds: float=30.0, hop_second
         env=librosa.onset.onset_strength(y=y[start:start+win],sr=sr,hop_length=hop,aggregate=np.median)
         tempo,beats=librosa.beat.beat_track(onset_envelope=env,sr=sr,hop_length=hop,units='time')
         bpm=float(np.asarray(tempo).reshape(-1)[0]) if np.asarray(tempo).size else None
+        local_candidates=pulse_autocorrelation_candidates(env,sr,hop)
         if bpm and math.isfinite(bpm) and bpm>0:
-            out.append({'start_seconds':round(start/sr,2),'end_seconds':round((start+win)/sr,2),'tempo_bpm':round(bpm,2),'beat_count':int(len(beats))})
+            out.append({'start_seconds':round(start/sr,2),'end_seconds':round((start+win)/sr,2),
+                        'tempo_bpm':round(bpm,2),'beat_count':int(len(beats)),
+                        'autocorrelation_candidates':local_candidates})
     return out
 
 
@@ -179,6 +182,42 @@ def octave_equivalent_difference(a: Optional[float], b: Optional[float]) -> Opti
     ratios=[a/b, a/(b*2.0), (a*2.0)/b]
     return round(min(abs(r-1.0) for r in ratios)*100.0,2)
 
+
+
+
+def fitted_grid_metrics(onsets: np.ndarray, beats: np.ndarray) -> dict:
+    """Measure beat/onset deviations from a constant grid fitted to detected beats."""
+    onsets=np.asarray(onsets,dtype=float); beats=np.asarray(beats,dtype=float)
+    result={'fitted_grid_bpm':None,'beat_grid_median_abs_error_ms':None,
+      'beat_grid_median_signed_error_ms':None,'beat_grid_p90_abs_error_ms':None,
+      'beat_grid_within_50ms_percent':None,'beat_grid_residuals_ms_json':'[]',
+      'onset_quarter_grid_median_abs_error_ms':None,
+      'onset_quarter_grid_median_signed_error_ms':None,
+      'onset_quarter_grid_p90_abs_error_ms':None,
+      'onset_quarter_grid_within_50ms_percent':None,
+      'onset_quarter_grid_residuals_ms_json':'[]','grid_fit_status':'insufficient_detected_beats'}
+    if beats.size<4: return result
+    period,phase=np.polyfit(np.arange(beats.size,dtype=float),beats,1)
+    if not math.isfinite(period) or period<=0:
+        result['grid_fit_status']='invalid_fitted_period'; return result
+    beat_res=(beats-(phase+np.arange(beats.size)*period))*1000.0
+    result.update({'fitted_grid_bpm':round(60.0/period,3),
+      'beat_grid_median_abs_error_ms':round(float(np.median(np.abs(beat_res))),3),
+      'beat_grid_median_signed_error_ms':round(float(np.median(beat_res)),3),
+      'beat_grid_p90_abs_error_ms':round(float(np.percentile(np.abs(beat_res),90)),3),
+      'beat_grid_within_50ms_percent':round(float(np.mean(np.abs(beat_res)<=50)*100),2),
+      'beat_grid_residuals_ms_json':json.dumps(np.round(beat_res,3).tolist()),
+      'grid_fit_status':'fitted_to_detected_beat_track'})
+    if onsets.size:
+        sub=period/4.0; phase_mod=phase % sub
+        nearest=np.round((onsets-phase_mod)/sub)*sub+phase_mod
+        res=(onsets-nearest)*1000.0
+        result.update({'onset_quarter_grid_median_abs_error_ms':round(float(np.median(np.abs(res))),3),
+          'onset_quarter_grid_median_signed_error_ms':round(float(np.median(res)),3),
+          'onset_quarter_grid_p90_abs_error_ms':round(float(np.percentile(np.abs(res),90)),3),
+          'onset_quarter_grid_within_50ms_percent':round(float(np.mean(np.abs(res)<=50)*100),2),
+          'onset_quarter_grid_residuals_ms_json':json.dumps(np.round(res,3).tolist())})
+    return result
 
 def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     """Estimate internal pulse regularity from the beat track; exploratory, not ground truth."""
