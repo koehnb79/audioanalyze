@@ -174,6 +174,8 @@ def analyze_local_grid(
         return empty
     if window_seconds <= 0 or hop_seconds <= 0:
         raise ValueError("window_seconds and hop_seconds must be positive")
+    if subdivision_tolerance_ms < 0:
+        raise ValueError("subdivision_tolerance_ms must be non-negative")
 
     start = float(min(onsets[0], beats[0]))
     end = float(max(onsets[-1], beats[-1]))
@@ -271,7 +273,7 @@ def analyze_local_grid(
             float(len(events) / onsets.size * 100.0), 2
         ),
         "unassigned_event_count": int(onsets.size - len(events)),
-        "subdivision_tolerance_ms": 18.0,
+        "subdivision_tolerance_ms": float(subdivision_tolerance_ms),
         "missing_beat_count_estimate": int(len({
             beat_index for window in windows
             for beat_index in window.get("missing_beat_indices", [])
