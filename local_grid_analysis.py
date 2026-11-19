@@ -175,8 +175,18 @@ def analyze_local_grid(
         }
         windows.append(window)
         quality = fit["beat_fit_median_abs_error_ms"] + 100.0 * fit["fit_cost"]
+        beat_numbers = np.rint((local_beats - fit["phase_seconds"]) /
+                               fit["period_seconds"]).astype(int)
+        beat_gaps = set()
+        for left, right in zip(beat_numbers[:-1], beat_numbers[1:]):
+            if right - left > 1:
+                beat_gaps.update(range(int(left + 1), int(right)))
         for event_idx in local_events_idx:
             assigned = _assign_event(float(onsets[event_idx]), fit)
+            assigned["missing_beat_flag"] = assigned["beat_index"] in beat_gaps
+            assigned["missing_beats_before_nearby"] = any(
+                0 < assigned["beat_index"] - missing <= 1 for missing in beat_gaps
+            )
             previous = event_choices.get(int(event_idx))
             if previous is None or quality < previous[0]:
                 event_choices[int(event_idx)] = (quality, assigned)
@@ -185,19 +195,6 @@ def analyze_local_grid(
         return empty
 
     events = [event_choices[i][1] for i in sorted(event_choices)]
-    # Mark detected-onset records adjacent to beat-index gaps; the missing beat
-    # itself remains explicit in each local-window summary.
-    beat_index_sequence = sorted(set(e["beat_index"] for e in events))
-    missing_indices = set()
-    for left, right in zip(beat_index_sequence[:-1], beat_index_sequence[1:]):
-        if right - left > 1:
-            missing_indices.update(range(left + 1, right))
-    for event in events:
-        event["missing_beat_flag"] = any(
-            idx in missing_indices for idx in
-            range(event["beat_index"] - 1, event["beat_index"] + 1)
-        )
-
     # Detect local tempo shifts between neighboring overlapping estimates.
     for i, window in enumerate(windows):
         neighbor_tempos = []
