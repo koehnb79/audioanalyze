@@ -134,11 +134,58 @@ def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[n
         return f'PLOT_ERROR: {exc}'
 
 
+
+def pulse_autocorrelation_candidates(env: np.ndarray, sr: int, hop: int=256,
+                                     min_bpm: float=30.0, max_bpm: float=240.0,
+                                     limit: int=8) -> list[dict]:
+    """Return independent periodicity candidates from onset-envelope autocorrelation.
+
+    These are candidate periodicities, not confirmed musical beats. Peaks at half/double
+    tempo are common and must be interpreted alongside listening and beat tracking.
+    """
+    env=np.asarray(env,dtype=float)
+    if env.size < 8 or not np.any(np.isfinite(env)):
+        return []
+    env=np.nan_to_num(env-np.mean(env))
+    ac=np.asarray(librosa.autocorrelate(env,max_size=env.size-1),dtype=float)
+    if ac.size < 3 or ac[0] <= 0:
+        return []
+    ac=ac/ac[0]
+    min_lag=max(1,int(round((60.0/max_bpm)*sr/hop)))
+    max_lag=min(len(ac)-2,int(round((60.0/min_bpm)*sr/hop)))
+    if max_lag <= min_lag:
+        return []
+    peaks=[]
+    for lag in range(min_lag+1,max_lag):
+        if ac[lag] >= ac[lag-1] and ac[lag] > ac[lag+1]:
+            peaks.append((float(ac[lag]),lag))
+    peaks.sort(reverse=True)
+    selected=[]
+    for score,lag in peaks:
+        bpm=60.0*sr/(lag*hop)
+        if any(abs(math.log2(bpm/item['bpm'])) < 0.035 for item in selected):
+            continue
+        selected.append({'bpm':round(bpm,3),'period_seconds':round(lag*hop/sr,4),
+                         'normalized_autocorrelation':round(score,5)})
+        if len(selected)>=limit:
+            break
+    return selected
+
+
+def octave_equivalent_difference(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    """Smallest percentage difference after allowing half/double-time equivalence."""
+    if not a or not b or a<=0 or b<=0:
+        return None
+    ratios=[a/b, a/(b*2.0), (a*2.0)/b]
+    return round(min(abs(r-1.0) for r in ratios)*100.0,2)
+
+
 def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     """Estimate internal pulse regularity from the beat track; exploratory, not ground truth."""
     hop=256
     env=librosa.onset.onset_strength(y=y,sr=sr,hop_length=hop,aggregate=np.median)
     bpm,beats=librosa.beat.beat_track(onset_envelope=env,sr=sr,hop_length=hop,units='time')
+    autocorr_candidates=pulse_autocorrelation_candidates(env,sr,hop)
     bpm=float(np.asarray(bpm).reshape(-1)[0]) if np.asarray(bpm).size else None
     beats=np.asarray(beats,dtype=float)
     if reference_bpm is not None: bpm=float(reference_bpm); source='user_supplied_reference_bpm'
@@ -167,18 +214,22 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
       'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'reference_candidate_bpm':None,'self_paced_candidate_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),
-      'pulse_interval_cv_percent':cv(np.diff(beats)) if len(beats)>1 else None,
+      'pulse_interval_cv_percent':round(cv(beat_intervals),3) if beat_intervals.size else None,
+      'pulse_autocorrelation_candidates_json':json.dumps(autocorr_candidates,separators=(',',':')),
+      'pulse_autocorrelation_top_bpm':autocorr_candidates[0]['bpm'] if autocorr_candidates else None,
+      'tracker_vs_autocorrelation_octave_adjusted_difference_percent':octave_equivalent_difference(bpm,autocorr_candidates[0]['bpm']) if autocorr_candidates else None,
       'beat_interval_count':int(beat_intervals.size),
       'beat_interval_median_ms':round(beat_median*1000,3) if beat_median is not None else None,
       'beat_interval_cv_percent':round(beat_cv,3) if beat_cv is not None else None,
       'beat_interval_mad_ms':round(beat_mad_ms,3) if beat_mad_ms is not None else None,
       'beat_interval_drift_ms_per_min':round(drift_ms_per_min,3) if drift_ms_per_min is not None else None,
+      'beat_tracker_time_span_percent':round(beat_coverage,2) if beat_coverage is not None else None,
       'beat_tracker_coverage_percent':round(beat_coverage,2) if beat_coverage is not None else None,
       'grid_subdivision':None,'onset_grid_median_abs_error_ms':None,
       'onset_grid_median_signed_error_ms':None,'onset_grid_p90_abs_error_ms':None,
       'onsets_within_50ms_percent':None,'grid_residuals_ms_json':'[]',
       'grid_metric_status':'disabled_no_independent_phase_reference',
-      'pulse_metric_caveat':'Beat intervals are tracker estimates from the same recording; not independent timing ground truth.'}
+      'pulse_metric_caveat':'Beat intervals are tracker estimates from the same recording; not independent timing ground truth. Autocorrelation candidates are alternative periodicities, not confirmed beats. beat_tracker_coverage_percent is retained for compatibility but actually means time span between first and last detected beats.'}
 
 
 def load_recording_annotations(folder: Path) -> dict:
