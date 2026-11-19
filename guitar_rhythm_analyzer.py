@@ -248,7 +248,9 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     duration=max(float(len(y))/sr,1e-9)
     beat_coverage=(float((beats[-1]-beats[0])/duration*100)
                    if len(beats)>=2 else None)
+    grid_metrics=fitted_grid_metrics(onsets,beats)
     return {
+      **grid_metrics,
       'analysis_mode':mode,'pulse_source':source,'pulse_confidence':'tempo_estimate_only',
       'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'reference_candidate_bpm':None,'self_paced_candidate_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
@@ -264,11 +266,7 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
       'beat_interval_drift_ms_per_min':round(drift_ms_per_min,3) if drift_ms_per_min is not None else None,
       'beat_tracker_time_span_percent':round(beat_coverage,2) if beat_coverage is not None else None,
       'beat_tracker_coverage_percent':round(beat_coverage,2) if beat_coverage is not None else None,
-      'grid_subdivision':None,'onset_grid_median_abs_error_ms':None,
-      'onset_grid_median_signed_error_ms':None,'onset_grid_p90_abs_error_ms':None,
-      'onsets_within_50ms_percent':None,'grid_residuals_ms_json':'[]',
-      'grid_metric_status':'disabled_no_independent_phase_reference',
-      'pulse_metric_caveat':'Beat intervals are tracker estimates from the same recording; not independent timing ground truth. Autocorrelation candidates are alternative periodicities, not confirmed beats. beat_tracker_coverage_percent is retained for compatibility but actually means time span between first and last detected beats.'}
+      'pulse_metric_caveat':'Beat-grid residuals are fitted to the beat tracker output from this same recording; onset residuals use quarter-beat subdivisions and are sensitive to missed/extra onsets and beat interpretation. These are mathematical-fit measures, not independent ground-truth timing errors. Autocorrelation candidates are alternative periodicities, not confirmed beats. beat_tracker_coverage_percent is retained for compatibility but actually means time span between first and last detected beats.'}
 
 
 def load_recording_annotations(folder: Path) -> dict:
