@@ -126,6 +126,9 @@ def _assign_event(onset: float, grid: dict, tolerance_ms: float = 18.0) -> dict:
     label = chosen["label"] if selected else "off-grid"
     predicted = chosen["predicted"]
     residual = chosen["residual"]
+    beat_grid_index = int(np.rint((onset - phase) / period))
+    beat_grid_predicted = phase + beat_grid_index * period
+    beat_grid_residual = (onset - beat_grid_predicted) * 1000.0
     beat_index = int(math.floor((predicted - phase) / period + 1e-8))
     subdivision_index = (int(round(
         (predicted - (phase + beat_index * period)) /
@@ -136,6 +139,9 @@ def _assign_event(onset: float, grid: dict, tolerance_ms: float = 18.0) -> dict:
         "predicted_grid_seconds": round(float(predicted), 6),
         "signed_residual_ms": round(float(residual), 3),
         "absolute_residual_ms": round(abs(float(residual)), 3),
+        "beat_grid_predicted_seconds": round(float(beat_grid_predicted), 6),
+        "beat_grid_signed_residual_ms": round(float(beat_grid_residual), 3),
+        "beat_grid_absolute_residual_ms": round(abs(float(beat_grid_residual)), 3),
         "beat_index": beat_index,
         "subdivision": label,
         "subdivisions_per_beat": count,
@@ -253,6 +259,9 @@ def analyze_local_grid(
         "p90_absolute_residual_ms": round(float(np.percentile(abs_residuals, 90)), 3),
         "within_50ms_percent": round(float(np.mean(abs_residuals <= 50.0) * 100), 2),
         "raw_signed_residuals_ms": np.round(residuals, 3).tolist(),
+        "raw_beat_grid_signed_residuals_ms": [
+            e["beat_grid_signed_residual_ms"] for e in events
+        ],
         "subdivision_counts": {
             **{label: sum(e["subdivision"] == label for e in events)
                for label in SUBDIVISIONS.values()},
