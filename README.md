@@ -1,13 +1,16 @@
 # Guitar Rhythm Analyzer
 
-## Version 0.9.3-dev (overlapping local-grid diagnostics)
+## Version 0.9.3.1-dev (local-grid validation corrections)
 
 The v0.9.3 development branch builds on the v0.9.2 grid-analysis branch. It retains the v0.9.2 fields for comparison and adds a separate local-grid event report:
 
 - Fits beat grids independently in overlapping 12-second windows advanced every 6 seconds; it no longer relies only on a single recording-wide fitted grid.
 - Estimates the local beat period while accounting for intervals that are integer multiples of the underlying period, preserving evidence of missing beats.
 - Assigns each detected onset an explicit beat index, subdivision label, predicted grid timestamp, and signed residual in milliseconds.
-- Supports beat, eighth-note, triplet, sixteenth, sextuplet, and thirty-second-note subdivisions. The selected subdivision is recorded per event rather than hidden in a nearest-quarter assignment.
+- Supports beat, eighth-note, triplet, sixteenth, sextuplet, and thirty-second-note candidate grids. An event is assigned to the coarsest subdivision whose residual is within the default 18 ms tolerance; otherwise it is marked `off-grid`. The best finer candidate and all candidate residuals remain available for inspection.
+- Preserves the unsusbdivided beat-grid residual separately from the selected-subdivision residual, so subdivision fitting cannot conceal deviation from the beat pulse.
+- Missing-beat gaps and half/double-time ambiguity are separate flags. Missing beat timestamps alone no longer force the octave-ambiguity flag.
+- Reports event coverage and unassigned-event counts.
 - Retains each event's raw residual and flags missing-beat proximity, local tempo changes, and half/double-time ambiguity.
 - Adds deterministic synthetic tests for perfect grids, controlled timing offsets, missing beats, tempo changes, half/double-time ambiguity, and event/subdivision fields.
 
@@ -17,6 +20,9 @@ Run synthetic tests with:
 
 ```bash
 python -m unittest discover -s tests -v
+
+# Optional: change the subdivision tolerance in milliseconds when calling
+# analyze_local_grid(..., subdivision_tolerance_ms=18.0)
 ```
 
 
