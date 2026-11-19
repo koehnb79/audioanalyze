@@ -46,12 +46,13 @@ class LocalGridTests(unittest.TestCase):
         self.assertGreater(max(tempos) - min(tempos), 10.0)
         self.assertGreater(result["local_grid_summary"]["tempo_change_window_count"], 0)
 
-    def test_half_double_time_ambiguity_flag_is_reported_for_skipped_beats(self):
+    def test_skipped_beats_are_not_mislabeled_as_octave_ambiguity(self):
         complete = beat_grid(count=40)
         detected = np.delete(complete, np.arange(1, 40, 3))
         result = analyze_local_grid(complete, detected, window_seconds=12, hop_seconds=6)
-        self.assertGreater(result["local_grid_summary"]["ambiguous_window_count"], 0)
+        self.assertGreater(result["local_grid_summary"]["missing_beat_count_estimate"], 0)
         self.assertTrue(all("half_double_time_ambiguous" in w for w in result["local_grid_windows"]))
+        self.assertTrue(all(not w["half_double_time_ambiguous"] for w in result["local_grid_windows"]))
 
     def test_coarsest_grid_within_tolerance_is_selected(self):
         grid = {"period_seconds": 0.5, "phase_seconds": 0.0,
