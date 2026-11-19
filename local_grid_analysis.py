@@ -82,7 +82,7 @@ def _fit_local_grid(beats: np.ndarray) -> dict | None:
     competing = [
         p for p, c, _ in candidates[1:]
         if ((1.8 <= p / period <= 2.2) or
-            (1.8 <= period / p <= 2.2)) and c <= cost + 0.08
+            (1.8 <= period / p <= 2.2)) and c <= cost + 0.04
     ]
     octave_ambiguous = bool(competing)
     return {
