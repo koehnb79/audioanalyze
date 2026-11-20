@@ -1,5 +1,28 @@
 # Guitar Rhythm Analyzer
 
+## Pulse interpretation diagnostics (experimental)
+
+The analyzer now reports competing pulse estimates without automatically choosing
+the intended musical beat. The new `pulse_hypothesis_*` fields preserve the
+beat-tracker estimate, phrase-estimator median, and onset-envelope autocorrelation
+candidates, and explicitly identify estimates that are approximately related by
+half-time/double-time. `pulse_hypothesis_selected_bpm` intentionally remains null:
+the software cannot determine the musician's intended meter from periodicity alone.
+
+Metric naming clarification:
+
+- `beat_grid_*` describes detected beat-track timestamps against a fitted
+  constant-period grid.
+- `onset_quarter_grid_*` compares guitar onsets with four equal subdivisions
+  per fitted beat period. It is **not** a quarter-note-only accuracy metric.
+- Local-grid event `beat_grid_*` residual fields describe distance to the
+  nearest fitted beat; `signed_residual_ms` describes distance to the selected
+  beat/subdivision position.
+
+These are algorithm-derived comparisons, not independent ground truth. Use
+listening or manually annotated beat timestamps to decide which pulse level is
+musically intended. The legacy fields remain unchanged for backwards compatibility.
+
 ## Version 0.9.4.2-dev (local-grid diagnostic overlays and reliability fixes)
 
 This refinement adds visual context to the local-grid analysis and hardens result handling.
