@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guitar Rhythm Analyzer 0.9.4.1-dev: local-grid and metronome-reference diagnostics."""
 from __future__ import annotations
-import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile
+import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile, traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -13,7 +13,7 @@ from metronome_reference_analysis import detect_metronome_reference
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.9.4.0-dev'
+ANALYSIS_VERSION = '0.9.4.2-dev'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -265,7 +265,7 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
       'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'reference_candidate_bpm':None,'self_paced_candidate_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),
-      'pulse_interval_cv_percent':round(cv(beat_intervals),3) if beat_intervals.size else None,
+      'pulse_interval_cv_percent':round(beat_cv,3) if beat_cv is not None else None,
       'pulse_autocorrelation_candidates_json':json.dumps(autocorr_candidates,separators=(',',':')),
       'pulse_autocorrelation_top_bpm':autocorr_candidates[0]['bpm'] if autocorr_candidates else None,
       'tracker_vs_autocorrelation_octave_adjusted_difference_percent':octave_equivalent_difference(bpm,autocorr_candidates[0]['bpm']) if autocorr_candidates else None,
@@ -421,11 +421,14 @@ def main() -> int:
             cv_text=f"{r['within_phrase_interval_cv_percent']:.2f}%" if r['within_phrase_interval_cv_percent'] is not None else 'n/a'
             print(f"  {r['detected_onsets']} onsets; {r['phrase_count']} phrases; within-phrase CV {cv_text}; quality {r['quality_flag']}")
         except Exception as e:
-            errors.append({'file':str(p),'error':str(e)}); print(f'  SKIPPED: {e}',file=sys.stderr)
+            errors.append({'file':str(p),'error':str(e),'exception_type':type(e).__name__,'traceback':traceback.format_exc()}); print(f'  SKIPPED: {e}',file=sys.stderr)
     save_results(rows,args.output)
     if errors:
         (args.output/'analysis_errors.json').write_text(json.dumps(errors,indent=2),encoding='utf-8')
         print(f'{len(errors)} file(s) skipped; see analysis_errors.json')
+    else:
+        stale_errors=args.output/'analysis_errors.json'
+        if stale_errors.exists(): stale_errors.unlink()
     print('\nImportant: phrase boundaries and onset detections are heuristic. Inspect plots and compare similar playing styles; these measurements are not a validated clinical or motor assessment.')
     return 0 if rows else 1
 
