@@ -6,6 +6,7 @@ from the recording, not an independent timing reference.
 """
 from __future__ import annotations
 
+import json
 import math
 from typing import Iterable
 
@@ -109,7 +110,7 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
         candidate for candidate in candidates[1:]
         if (1.8 <= candidate["period"] / best["period"] <= 2.2 or
             1.8 <= best["period"] / candidate["period"] <= 2.2)
-        and candidate["cost"] <= best["cost"] + 0.04
+        and candidate["cost"] <= best["cost"] + 0.12
     ]
     ambiguous = bool(octave_alternatives)
     missing_slots = int(np.sum(np.maximum(best["gaps"] - 1, 0)))
@@ -130,7 +131,7 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
         "missed_beat_grid_missing_slots_estimate": missing_slots,
         "missed_beat_grid_octave_ambiguous": ambiguous,
         "missed_beat_grid_candidate_cost": round(best["cost"], 6),
-        "missed_beat_grid_residuals_ms_json": __import__("json").dumps(
+        "missed_beat_grid_residuals_ms_json": json.dumps(
             np.round(residual_ms, 3).tolist()
         ),
     })
