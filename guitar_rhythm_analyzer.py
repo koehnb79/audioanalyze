@@ -157,7 +157,10 @@ def plot_diagnostics(
             last=int(np.floor((end-phase)/step_eighth))
             for index in range(first,last+1):
                 t=round(phase+index*step_eighth,4)
-                if round((t-phase)/period)%1:
+                # Keep only half-beat positions; modulo 1 on a rounded
+                # integer is always zero and would silently suppress every eighth.
+                beat_position=(t-phase)/period
+                if abs(beat_position-round(beat_position)) > 1e-6:
                     eighth_positions.add(t)
         for index,t in enumerate(sorted(eighth_positions)):
             ax1.axvline(t,alpha=.28,linewidth=.55,linestyle=':',color='tab:blue',
