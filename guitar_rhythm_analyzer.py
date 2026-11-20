@@ -115,7 +115,8 @@ def tempo_windows(y: np.ndarray, sr: int, window_seconds: float=30.0, hop_second
     return out
 
 
-def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray], out: Path, stem: str) -> Optional[str]:
+def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray], out: Path, stem: str, candidate_clicks: Optional[np.ndarray]=None) -> Optional[str]:
+    """Save onset diagnostics and visually distinguish unverified click candidates."""
     try:
         import matplotlib
         matplotlib.use('Agg')
@@ -125,8 +126,13 @@ def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[n
         fig,(ax1,ax2)=plt.subplots(2,1,figsize=(13,6),sharex=False,constrained_layout=True)
         step=max(1,int(sr/3000))
         ax1.plot(times[::step],y[::step],linewidth=.45)
-        for t in onsets: ax1.axvline(t,alpha=.28,linewidth=.6)
-        ax1.set(title='Waveform with detected onsets',xlabel='Time (s)',ylabel='Amplitude')
+        for t in onsets: ax1.axvline(t,alpha=.22,linewidth=.55,color='0.45')
+        if candidate_clicks is not None and len(candidate_clicks):
+            for index,t in enumerate(candidate_clicks):
+                ax1.axvline(t,alpha=.9,linewidth=1.0,linestyle='--',color='tab:red',
+                            label='Unverified click candidate' if index==0 else None)
+            ax1.legend(fontsize=8)
+        ax1.set(title='Waveform: detected onsets and unverified click candidates',xlabel='Time (s)',ylabel='Amplitude')
         for i,p in enumerate(phrases):
             if p.size>1: ax2.scatter(p[1:],np.diff(p),s=12,label=f'Phrase {i+1}')
         ax2.set(title='Inter-onset intervals within detected phrases',xlabel='Time of second onset (s)',ylabel='Interval (s)')
@@ -338,7 +344,8 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     file_stat=path.stat()
     annotation=load_recording_annotations(path.parent).get(path.name,('uncertain',''))
     recording_date_value,recording_date_source=recording_date(path)
-    plot_path=plot_diagnostics(y,sr,onsets,phrases,plot_dir,path.stem) if plot_dir else None
+    candidate_clicks=np.asarray(json.loads(pulse_metrics.get('metronome_candidate_times_seconds_json','[]')),dtype=float)
+    plot_path=plot_diagnostics(y,sr,onsets,phrases,plot_dir,path.stem,candidate_clicks) if plot_dir else None
     return {
       'filename':path.name,'path':str(path.resolve()),'recording_context':annotation[0],'recording_context_notes':annotation[1],'media_type':'video' if path.suffix.lower() in VIDEO_EXTENSIONS else 'audio',
       'file_modified_local':datetime.fromtimestamp(file_stat.st_mtime).astimezone().isoformat(timespec='seconds'),
