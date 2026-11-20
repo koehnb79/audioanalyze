@@ -1,5 +1,18 @@
 # Guitar Rhythm Analyzer
 
+## Version 0.9.4.2-dev (local-grid diagnostic overlays and reliability fixes)
+
+This refinement adds visual context to the local-grid analysis and hardens result handling.
+
+- Adds a three-panel diagnostic plot: waveform with fitted local beat/eighth-note grids and unverified click candidates, phrase inter-onset intervals, and signed local-grid residual histogram.
+- Deduplicates overlapping grid timestamps in the waveform overlay. Eighth-note positions are displayed separately from beat positions.
+- Returns `insufficient_events` when beat-grid windows were fitted but no guitar onsets can be assigned, preserving the fitted windows without calculating statistics over empty residual arrays.
+- Builds CSV columns from the union of keys across all result rows so optional metronome fields appearing later in a batch are retained.
+- Restores temporary test import stubs after importing the analyzer and explicitly closes the SQLite connection after saving.
+- Adds regression coverage for the empty-event case and diagnostics/result serialization.
+
+The 18 ms subdivision tolerance remains an exploratory setting, not a validated universal threshold. Local-grid residuals compare onsets with a grid estimated from the same recording; they are not independent ground-truth timing errors. Inspect plots and compare like passages before drawing conclusions.
+
 ## Version 0.9.4.1-dev (missed-click-tolerant reference fitting)
 
 The experimental reference detector now fits pulse period and phase while allowing observed gaps to be integer multiples of the underlying period. This addresses missed transient detections without treating every long gap as an irregular click interval.
