@@ -10,17 +10,33 @@ from unittest.mock import patch
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-for name, func in (
-    ("local_grid_analysis", "analyze_local_grid"),
-    ("metronome_reference_analysis", "detect_metronome_reference"),
-):
-    module = types.ModuleType(name)
-    setattr(module, func, lambda *args, **kwargs: {})
-    sys.modules[name] = module
+# The analyzer diagnostics tests need lightweight stand-ins while importing the
+# main script, but must not leave those stand-ins in sys.modules: the real
+# local-grid and metronome test modules are imported later by unittest discovery.
+_saved_modules = {
+    name: sys.modules.get(name)
+    for name in ("local_grid_analysis", "metronome_reference_analysis")
+}
+try:
+    for name, func in (
+        ("local_grid_analysis", "analyze_local_grid"),
+        ("metronome_reference_analysis", "detect_metronome_reference"),
+    ):
+        module = types.ModuleType(name)
+        setattr(module, func, lambda *args, **kwargs: {})
+        sys.modules[name] = module
 
-spec = importlib.util.spec_from_file_location("rhythm_diagnostics", ROOT / "guitar_rhythm_analyzer.py")
-analyzer = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(analyzer)
+    spec = importlib.util.spec_from_file_location(
+        "rhythm_diagnostics", ROOT / "guitar_rhythm_analyzer.py"
+    )
+    analyzer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(analyzer)
+finally:
+    for name, previous in _saved_modules.items():
+        if previous is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
 
 
 class DiagnosticTests(unittest.TestCase):
