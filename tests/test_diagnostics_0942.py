@@ -1,5 +1,7 @@
 import importlib.util
 import sys
+import tempfile
+import csv
 import types
 import unittest
 from pathlib import Path
@@ -30,6 +32,21 @@ class DiagnosticTests(unittest.TestCase):
             result = analyzer.pulse_analysis(np.ones(1000), 22050, np.array([0.1, 0.6, 1.1]))
         self.assertIsNone(result["pulse_interval_cv_percent"])
         self.assertEqual(result["beat_interval_count"], 2)
+
+    def test_csv_writer_includes_fields_added_by_later_rows(self):
+        rows = [
+            {"filename": "ordinary.mp3", "analysis_version": "0.9.4.2-dev"},
+            {"filename": "metronome.mp3", "analysis_version": "0.9.4.2-dev",
+             "reference_bpm": 120.0, "reference_timing_status": "analyzed"},
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            analyzer.save_results(rows, Path(folder))
+            with (Path(folder) / "rhythm_measurements.csv").open(newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                self.assertIn("reference_bpm", reader.fieldnames)
+                saved = list(reader)
+        self.assertEqual(saved[0]["filename"], "ordinary.mp3")
+        self.assertEqual(saved[1]["reference_bpm"], "120.0")
 
     def test_three_beat_intervals_have_numeric_cv(self):
         with patch.object(analyzer.librosa.onset, "onset_strength", return_value=np.ones(100)), \
