@@ -379,7 +379,9 @@ def save_results(rows: list[dict], output: Path) -> None:
     if not rows:
         print('No recordings were successfully analyzed; no result files written.')
         return
-    fields=list(rows[0])
+    # Later recordings may add optional fields (for example, metronome-reference metrics).
+    # Build a stable union so DictWriter can serialize heterogeneous result rows.
+    fields=list(dict.fromkeys(key for row in rows for key in row.keys()))
     with (output/'rhythm_measurements.csv').open('w',newline='',encoding='utf-8') as f:
         w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(rows)
     (output/'rhythm_measurements.json').write_text(json.dumps(rows,indent=2),encoding='utf-8')
