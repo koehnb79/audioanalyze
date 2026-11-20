@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile, traceback
 from datetime import datetime, timezone
+from contextlib import closing
 from pathlib import Path
 from typing import Optional
 import librosa
@@ -385,10 +386,13 @@ def save_results(rows: list[dict], output: Path) -> None:
     with (output/'rhythm_measurements.csv').open('w',newline='',encoding='utf-8') as f:
         w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(rows)
     (output/'rhythm_measurements.json').write_text(json.dumps(rows,indent=2),encoding='utf-8')
-    with sqlite3.connect(output/'rhythm_history.sqlite') as db:
-        db.execute('CREATE TABLE IF NOT EXISTS analysis_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, analyzed_at_utc TEXT NOT NULL, analysis_version TEXT NOT NULL, filename TEXT NOT NULL, result_json TEXT NOT NULL)')
-        now=datetime.now(timezone.utc).isoformat(timespec='seconds')
-        db.executemany('INSERT INTO analysis_runs (analyzed_at_utc,analysis_version,filename,result_json) VALUES (?,?,?,?)',[(now,ANALYSIS_VERSION,r['filename'],json.dumps(r)) for r in rows])
+    # sqlite3.Connection's context manager commits/rolls back but does not
+    # close the connection; close it explicitly to avoid ResourceWarnings.
+    with closing(sqlite3.connect(output/'rhythm_history.sqlite')) as db:
+        with db:
+            db.execute('CREATE TABLE IF NOT EXISTS analysis_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, analyzed_at_utc TEXT NOT NULL, analysis_version TEXT NOT NULL, filename TEXT NOT NULL, result_json TEXT NOT NULL)')
+            now=datetime.now(timezone.utc).isoformat(timespec='seconds')
+            db.executemany('INSERT INTO analysis_runs (analyzed_at_utc,analysis_version,filename,result_json) VALUES (?,?,?,?)',[(now,ANALYSIS_VERSION,r['filename'],json.dumps(r)) for r in rows])
     print(f'Results saved in {output.resolve()} (CSV, JSON, SQLite).')
 
 
