@@ -7,9 +7,9 @@ guitar attacks and metronome clicks inseparable.
 """
 from __future__ import annotations
 
+import json
 import math
 import numpy as np
-import librosa
 
 
 def _transient_signatures(y: np.ndarray, sr: int, onset_times: np.ndarray,
@@ -57,6 +57,7 @@ def analyze_reference_timing(click_times: np.ndarray,
         "reference_timing_status": "insufficient_clicks",
         "reference_click_count": int(clicks.size),
         "reference_guitar_event_count": int(onsets.size),
+        "reference_guitar_event_times_seconds_json": json.dumps(np.round(onsets, 4).tolist()),
         "reference_bpm": None,
         "reference_interval_cv_percent": None,
         "reference_guitar_beat_median_abs_error_ms": None,
@@ -118,7 +119,7 @@ def analyze_reference_timing(click_times: np.ndarray,
         "reference_guitar_beat_within_20ms_percent": round(float(np.mean(absolute <= 20) * 100), 2),
         "reference_guitar_beat_within_30ms_percent": round(float(np.mean(absolute <= 30) * 100), 2),
         "reference_guitar_beat_within_50ms_percent": round(float(np.mean(absolute <= 50) * 100), 2),
-        "reference_guitar_beat_residuals_ms_json": __import__("json").dumps(np.round(beat_residuals, 3).tolist()),
+        "reference_guitar_beat_residuals_ms_json": json.dumps(np.round(beat_residuals, 3).tolist()),
         "reference_guitar_sixteenth_median_abs_error_ms": round(float(np.median(np.abs(sixteenth_residuals))), 3),
         "reference_guitar_sixteenth_residuals_ms_json": __import__("json").dumps(np.round(sixteenth_residuals, 3).tolist()),
     })
