@@ -6,6 +6,7 @@ relationship, not evidence that either estimate is the intended meter.
 """
 from __future__ import annotations
 
+import json
 import math
 from typing import Iterable
 
@@ -66,7 +67,7 @@ def build_pulse_hypotheses(
     )
     return {
         "pulse_hypothesis_status": status,
-        "pulse_hypothesis_estimates_json": __import__("json").dumps(
+        "pulse_hypothesis_estimates_json": json.dumps(
             estimates, separators=(",", ":")
         ),
         "pulse_hypothesis_octave_relationships_json": __import__("json").dumps(
