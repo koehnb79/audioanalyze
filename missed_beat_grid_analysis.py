@@ -81,6 +81,11 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
         "missed_beat_grid_octave_ambiguous": None,
         "missed_beat_grid_candidate_cost": None,
         "missed_beat_grid_residuals_ms_json": "[]",
+        "missed_beat_grid_interpretation_note": (
+            "The selected period is the least-cost explanation of detected beat timestamps. "
+            "A faster pulse with systematic missed detections can be mathematically indistinguishable; "
+            "timestamps alone cannot establish the intended musical beat."
+        ),
     }
     if beats.size < 4:
         return result
@@ -110,7 +115,7 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
         candidate for candidate in candidates[1:]
         if (1.8 <= candidate["period"] / best["period"] <= 2.2 or
             1.8 <= best["period"] / candidate["period"] <= 2.2)
-        and candidate["cost"] <= best["cost"] + 0.12
+        and candidate["cost"] <= best["cost"] + 0.04
     ]
     ambiguous = bool(octave_alternatives)
     missing_slots = int(np.sum(np.maximum(best["gaps"] - 1, 0)))
