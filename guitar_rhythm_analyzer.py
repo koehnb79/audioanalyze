@@ -11,6 +11,7 @@ import numpy as np
 from local_grid_analysis import analyze_local_grid
 from metronome_reference_analysis import detect_metronome_reference
 from pulse_hypothesis_analysis import build_pulse_hypotheses
+from missed_beat_grid_analysis import missed_beat_tolerant_grid
 
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
@@ -321,9 +322,11 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     beat_coverage=(float((beats[-1]-beats[0])/duration*100)
                    if len(beats)>=2 else None)
     grid_metrics=fitted_grid_metrics(onsets,beats)
+    missed_beat_grid_metrics=missed_beat_tolerant_grid(beats)
     local_grid_metrics=analyze_local_grid(onsets,beats)
     return {
       **grid_metrics,
+      **missed_beat_grid_metrics,
       **local_grid_metrics,
       'analysis_mode':mode,'pulse_source':source,'pulse_confidence':'tempo_estimate_only',
       'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
