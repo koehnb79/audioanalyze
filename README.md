@@ -1,5 +1,25 @@
 # Guitar Rhythm Analyzer
 
+## Version 0.9.4.0-dev (experimental independent metronome reference)
+
+The v0.9.4 development branch adds an experimental click-train detector for recordings explicitly tagged `[Metronome]` in the filename.
+
+- Builds short-window spectral signatures around detected transients and searches for a repeated signature.
+- Checks whether the candidate transient train is sufficiently regular before treating it as a possible click reference.
+- Excludes candidate click events from the guitar-event list before calculating guitar-to-click timing. In a mono mix, a guitar attack coincident with a click may also be excluded; reliable source separation is not guaranteed.
+- Reports signed beat-relative timing residuals, median absolute error, 90th-percentile error, and percentages within 10, 20, 30, and 50 ms.
+- Reports sixteenth-grid residuals separately. This is a nearest-grid diagnostic, not proof that a particular note was intended on that subdivision.
+- Leaves non-`[Metronome]` recordings untouched and records why independent reference analysis was not attempted.
+- Adds synthetic tests for perfect alignment, early/late offsets, subdivision-vs-beat distinction, irregular clicks, and insufficient reference events.
+
+**Important validation limit:** a repeated guitar attack pattern can resemble a metronome click train. A candidate click train must be reviewed against the audio and diagnostic plot. These measurements should not be treated as verified synchronization accuracy until click detection and guitar/click separation are confirmed for the recording. A known BPM alone still does not provide independent beat phase.
+
+Run tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Version 0.9.3.1-dev (local-grid validation corrections)
 
 The v0.9.3 development branch builds on the v0.9.2 grid-analysis branch. It retains the v0.9.2 fields for comparison and adds a separate local-grid event report:
