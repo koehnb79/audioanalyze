@@ -27,13 +27,14 @@ class MissedBeatGridTests(unittest.TestCase):
         self.assertAlmostEqual(result["missed_beat_grid_bpm"], 120.0, delta=1.0)
         self.assertLess(result["missed_beat_grid_median_abs_error_ms"], 3.0)
 
-    def test_uniformly_spaced_detections_report_octave_ambiguity(self):
-        # These timestamps alone cannot distinguish a true 60 BPM pulse from
+    def test_uniformly_spaced_detections_cannot_prove_intended_pulse(self):
+        # The least-cost explanation is 60 BPM, but timestamps cannot exclude
         # a 120 BPM pulse whose alternate beats were never detected.
         beats = 0.1 + np.arange(8) * 1.0
         result = missed_beat_tolerant_grid(beats)
-        self.assertTrue(result["missed_beat_grid_octave_ambiguous"])
-        self.assertEqual(result["missed_beat_grid_status"], "octave_ambiguous")
+        self.assertAlmostEqual(result["missed_beat_grid_bpm"], 60.0, places=2)
+        self.assertIn("systematic missed detections",
+                      result["missed_beat_grid_interpretation_note"])
 
     def test_too_few_beats_do_not_produce_a_fit(self):
         result = missed_beat_tolerant_grid([0.1, 0.6, 1.1])
