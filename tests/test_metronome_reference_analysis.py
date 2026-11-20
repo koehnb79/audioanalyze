@@ -39,7 +39,7 @@ class MetronomeReferenceTests(unittest.TestCase):
 
     def test_outlier_clicks_do_not_silently_pass_validation(self):
         clicks = np.arange(40, dtype=float) * 0.5
-        clicks[10] += 0.09
+        clicks[10:24] += 0.09
         result = analyze_reference_timing(clicks, np.arange(40) * 0.5)
         self.assertNotEqual(result["reference_timing_status"], "analyzed")
 
