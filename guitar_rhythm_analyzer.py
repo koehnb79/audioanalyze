@@ -116,28 +116,87 @@ def tempo_windows(y: np.ndarray, sr: int, window_seconds: float=30.0, hop_second
     return out
 
 
-def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray], out: Path, stem: str, candidate_clicks: Optional[np.ndarray]=None) -> Optional[str]:
-    """Save onset diagnostics and visually distinguish unverified click candidates."""
+def plot_diagnostics(
+    y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray],
+    out: Path, stem: str, candidate_clicks: Optional[np.ndarray]=None,
+    local_grid_windows: Optional[list[dict]]=None,
+    local_grid_events: Optional[list[dict]]=None,
+) -> Optional[str]:
+    """Save waveform, local-grid overlay, interval, and signed-residual diagnostics."""
     try:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         out.mkdir(parents=True,exist_ok=True)
         times=np.arange(y.size)/sr
-        fig,(ax1,ax2)=plt.subplots(2,1,figsize=(13,6),sharex=False,constrained_layout=True)
+        fig,(ax1,ax2,ax3)=plt.subplots(
+            3,1,figsize=(14,9),sharex=False,
+            gridspec_kw={'height_ratios':[2.2,1.2,1.0]},constrained_layout=True
+        )
         step=max(1,int(sr/3000))
-        ax1.plot(times[::step],y[::step],linewidth=.45)
-        for t in onsets: ax1.axvline(t,alpha=.22,linewidth=.55,color='0.45')
+        ax1.plot(times[::step],y[::step],linewidth=.45,color='0.35')
+        for t in onsets:
+            ax1.axvline(t,alpha=.18,linewidth=.5,color='0.45')
+        # Overlay the fitted local beat grids. Overlapping windows are deduplicated
+        # by timestamp so the plot remains readable.
+        beat_positions=set()
+        eighth_positions=set()
+        for window in local_grid_windows or []:
+            period=float(window.get('beat_period_seconds') or 0)
+            phase=float(window.get('phase_seconds') or 0)
+            start=float(window.get('start_seconds') or 0)
+            end=float(window.get('end_seconds') or 0)
+            if period<=0:
+                continue
+            first=int(np.ceil((start-phase)/period))
+            last=int(np.floor((end-phase)/period))
+            for index in range(first,last+1):
+                beat_positions.add(round(phase+index*period,4))
+            step_eighth=period/2.0
+            first=int(np.ceil((start-phase)/step_eighth))
+            last=int(np.floor((end-phase)/step_eighth))
+            for index in range(first,last+1):
+                t=round(phase+index*step_eighth,4)
+                if round((t-phase)/period)%1:
+                    eighth_positions.add(t)
+        for index,t in enumerate(sorted(eighth_positions)):
+            ax1.axvline(t,alpha=.28,linewidth=.55,linestyle=':',color='tab:blue',
+                        label='Local eighth-note grid' if index==0 else None)
+        for index,t in enumerate(sorted(beat_positions)):
+            ax1.axvline(t,alpha=.65,linewidth=.85,linestyle='-',color='tab:blue',
+                        label='Local beat grid' if index==0 else None)
         if candidate_clicks is not None and len(candidate_clicks):
             for index,t in enumerate(candidate_clicks):
                 ax1.axvline(t,alpha=.9,linewidth=1.0,linestyle='--',color='tab:red',
                             label='Unverified click candidate' if index==0 else None)
-            ax1.legend(fontsize=8)
-        ax1.set(title='Waveform: detected onsets and unverified click candidates',xlabel='Time (s)',ylabel='Amplitude')
+        handles,labels=ax1.get_legend_handles_labels()
+        if handles:
+            ax1.legend(fontsize=7,ncol=3,loc='upper right')
+        ax1.set(title='Waveform: detected onsets, fitted local grid, and unverified click candidates',
+                xlabel='Time (s)',ylabel='Amplitude')
         for i,p in enumerate(phrases):
-            if p.size>1: ax2.scatter(p[1:],np.diff(p),s=12,label=f'Phrase {i+1}')
-        ax2.set(title='Inter-onset intervals within detected phrases',xlabel='Time of second onset (s)',ylabel='Interval (s)')
-        if len(phrases)<=12 and phrases: ax2.legend(fontsize=7,ncol=3)
+            if p.size>1:
+                ax2.scatter(p[1:],np.diff(p),s=12,label=f'Phrase {i+1}')
+        ax2.set(title='Inter-onset intervals within detected phrases',
+                xlabel='Time of second onset (s)',ylabel='Interval (s)')
+        if len(phrases)<=12 and phrases:
+            ax2.legend(fontsize=7,ncol=3)
+        residuals=np.asarray([
+            float(event['signed_residual_ms']) for event in (local_grid_events or [])
+            if event.get('signed_residual_ms') is not None
+        ],dtype=float)
+        if residuals.size:
+            ax3.hist(residuals,bins=np.arange(-105,110,5),edgecolor='0.25',linewidth=.5)
+            ax3.axvline(0,color='black',linewidth=.9)
+            ax3.axvline(float(np.median(residuals)),color='tab:red',linestyle='--',
+                        linewidth=1.0,label=f'Median {np.median(residuals):.1f} ms')
+            ax3.legend(fontsize=7)
+            ax3.set(title='Signed local-grid residuals (negative = early; positive = late)',
+                    xlabel='Residual (ms)',ylabel='Events')
+        else:
+            ax3.text(.5,.5,'No local-grid event residuals available',
+                     ha='center',va='center',transform=ax3.transAxes)
+            ax3.set_axis_off()
         target=out/(stem+'_onsets.png')
         fig.savefig(target,dpi=130)
         plt.close(fig)
@@ -346,7 +405,10 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     annotation=load_recording_annotations(path.parent).get(path.name,('uncertain',''))
     recording_date_value,recording_date_source=recording_date(path)
     candidate_clicks=np.asarray(json.loads(pulse_metrics.get('metronome_candidate_times_seconds_json','[]')),dtype=float)
-    plot_path=plot_diagnostics(y,sr,onsets,phrases,plot_dir,path.stem,candidate_clicks) if plot_dir else None
+    plot_path=plot_diagnostics(
+        y,sr,onsets,phrases,plot_dir,path.stem,candidate_clicks,
+        pulse_metrics.get('local_grid_windows'),pulse_metrics.get('local_grid_events')
+    ) if plot_dir else None
     return {
       'filename':path.name,'path':str(path.resolve()),'recording_context':annotation[0],'recording_context_notes':annotation[1],'media_type':'video' if path.suffix.lower() in VIDEO_EXTENSIONS else 'audio',
       'file_modified_local':datetime.fromtimestamp(file_stat.st_mtime).astimezone().isoformat(timespec='seconds'),
