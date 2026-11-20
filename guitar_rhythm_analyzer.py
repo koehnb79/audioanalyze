@@ -10,6 +10,7 @@ import librosa
 import numpy as np
 from local_grid_analysis import analyze_local_grid
 from metronome_reference_analysis import detect_metronome_reference
+from pulse_hypothesis_analysis import build_pulse_hypotheses
 
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
@@ -394,6 +395,11 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     valid_all=all_intervals[(all_intervals>=0.045)&(all_intervals<=3.0)]
     tempo=librosa.feature.tempo(onset_envelope=env,sr=sr,hop_length=hop,aggregate=None)
     tempo=np.asarray(tempo,dtype=float).reshape(-1); tempo=tempo[np.isfinite(tempo)&(tempo>0)]
+    pulse_metrics.update(build_pulse_hypotheses(
+        pulse_metrics.get('pulse_bpm'),
+        finite(np.median(tempo)) if tempo.size else None,
+        json.loads(pulse_metrics.get('pulse_autocorrelation_candidates_json','[]'))
+    ))
     phrase_cvs=[p['interval_cv_percent'] for p in phrase_stats if p['interval_cv_percent'] is not None]
     phrase_medians=[p['median_interval_seconds'] for p in phrase_stats if p['median_interval_seconds'] is not None]
     if onsets.size < min_onsets:
