@@ -8,6 +8,7 @@ from typing import Optional
 import librosa
 import numpy as np
 from local_grid_analysis import analyze_local_grid
+from metronome_reference_analysis import detect_metronome_reference
 
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
@@ -300,6 +301,17 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     if onsets.size: onsets=onsets[np.r_[True,np.diff(onsets)>=0.045]]
     phrases,gap_threshold=phrase_groups(onsets)
     pulse_metrics=pulse_analysis(y,sr,onsets,mode,reference_bpm)
+    # Only attempt independent click detection for recordings explicitly tagged
+    # by the user. Repeated drum transients in other recordings are not a click reference.
+    if re.search(r'\[Metronome\]', path.stem, flags=re.IGNORECASE):
+        pulse_metrics.update(detect_metronome_reference(y, sr, onsets))
+    else:
+        pulse_metrics.update({
+            'metronome_detection_status': 'not_requested_by_recording_tag',
+            'metronome_candidate_count': 0,
+            'metronome_candidate_times_seconds_json': '[]',
+            'metronome_detection_note': 'Independent click detection is attempted only for filenames tagged [Metronome].',
+        })
     tempo_profile=tempo_windows(y,sr)
     window_tempos=np.asarray([x['tempo_bpm'] for x in tempo_profile],dtype=float)
     all_intervals=np.diff(onsets)
