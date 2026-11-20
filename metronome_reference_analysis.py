@@ -142,7 +142,13 @@ def detect_metronome_reference(y: np.ndarray, sr: int,
     if cluster.size < max(8, int(math.ceil(onsets.size * 0.12))):
         return empty
     candidate_times = onsets[cluster]
-    timing = analyze_reference_timing(candidate_times, onsets)
+    # Remove detected click events from the guitar-event list. If a guitar note
+    # coincides with a click in a mono mix, it may also be removed; source separation
+    # cannot be guaranteed from a single mixed channel.
+    keep = np.ones(onsets.size, dtype=bool)
+    keep[cluster] = False
+    guitar_candidates = onsets[keep]
+    timing = analyze_reference_timing(candidate_times, guitar_candidates)
     if timing["reference_timing_status"] != "analyzed":
         result = dict(empty)
         result.update({
