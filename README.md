@@ -1,5 +1,26 @@
 # Guitar Rhythm Analyzer
 
+## Missed-beat-tolerant global grid (experimental)
+
+A new additive diagnostic, `missed_beat_grid_*`, fits a recording-wide pulse grid
+while allowing detected beat timestamps to skip up to three underlying grid slots.
+It reports the fitted BPM, beat residual distribution, estimated missing slots,
+candidate fit cost, and an octave-ambiguity flag.
+
+The existing `fitted_grid_bpm` and `beat_grid_*` fields are intentionally unchanged
+and continue to use the legacy consecutive-detection ordinal fit for historical
+comparability. The new global fit is also separate from the overlapping local-grid
+analysis, which can follow tempo changes within a recording.
+
+A sequence with every other beat absent is intrinsically ambiguous: the timestamps
+alone cannot distinguish a slower true pulse from a faster pulse with systematic
+missed detections. The new metric marks close half/double-time alternatives rather
+than claiming to resolve that question. It is still based on the same audio-derived
+beat tracker, not an independent clock.
+
+Synthetic tests cover regular beats, a skipped detection, timing jitter, systematic
+alternate-beat omission, and insufficient input.
+
 ## Pulse interpretation diagnostics (experimental)
 
 The analyzer now reports competing pulse estimates without automatically choosing
