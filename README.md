@@ -5,7 +5,9 @@
 A new additive diagnostic, `missed_beat_grid_*`, fits a recording-wide pulse grid
 while allowing detected beat timestamps to skip up to three underlying grid slots.
 It reports the fitted BPM, beat residual distribution, estimated missing slots,
-candidate fit cost, and an octave-ambiguity flag.
+candidate fit cost, and a conservative flag for close competing octave-related fits.
+The interpretation note explicitly warns that a faster pulse with systematic missed
+detections can be indistinguishable from the selected slower pulse using timestamps alone.
 
 The existing `fitted_grid_bpm` and `beat_grid_*` fields are intentionally unchanged
 and continue to use the legacy consecutive-detection ordinal fit for historical
