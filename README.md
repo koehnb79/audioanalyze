@@ -1,5 +1,17 @@
 # Guitar Rhythm Analyzer
 
+## Version 0.9.4.1-dev (missed-click-tolerant reference fitting)
+
+The experimental reference detector now fits pulse period and phase while allowing observed gaps to be integer multiples of the underlying period. This addresses missed transient detections without treating every long gap as an irregular click interval.
+
+- Searches a bounded 40–240 BPM period range and refines candidate period/phase using robust inlier fitting.
+- Reports click-fit inlier count, median and 90th-percentile phase residual, within-20-ms percentage, and estimated missing grid slots.
+- Retains raw observed-gap CV as a diagnostic only; it is no longer used by itself to reject a candidate.
+- Uses conservative fit-quality gates before calculating guitar-to-reference timing.
+- Adds synthetic coverage for missing clicks and outlier sequences.
+
+**Important:** a periodic guitar pattern can still mimic a click train. A good mathematical phase fit does not establish the acoustic source or prove that the candidate is a metronome. Candidate trains still require waveform/audio review; mono-source separation is not guaranteed.
+
 ## Version 0.9.4.0-dev (experimental independent metronome reference)
 
 The v0.9.4 development branch adds an experimental click-train detector for recordings explicitly tagged `[Metronome]` in the filename.
