@@ -229,6 +229,28 @@ def analyze_local_grid(
         return empty
 
     events = [event_choices[i][1] for i in sorted(event_choices)]
+    # A beat-tracker window can be fit even when it contains no guitar onsets.
+    # Preserve the fitted windows for diagnostics, but do not calculate event
+    # percentiles over an empty residual array.
+    if not events:
+        return {
+            "local_grid_status": "insufficient_events",
+            "local_grid_window_seconds": float(window_seconds),
+            "local_grid_hop_seconds": float(hop_seconds),
+            "subdivision_tolerance_ms": float(subdivision_tolerance_ms),
+            "local_grid_windows": windows,
+            "local_grid_events": [],
+            "local_grid_summary": {
+                "event_count": 0,
+                "event_coverage_percent": 0.0,
+                "unassigned_event_count": int(onsets.size),
+                "subdivision_tolerance_ms": float(subdivision_tolerance_ms),
+            },
+            "local_grid_caveat": (
+                "Beat-grid windows were fitted, but no guitar onsets fell inside "
+                "a successfully fitted window. Event residual statistics are unavailable."
+            ),
+        }
     # Detect local tempo shifts between neighboring overlapping estimates.
     for i, window in enumerate(windows):
         neighbor_tempos = []
