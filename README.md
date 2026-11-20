@@ -8,6 +8,7 @@ The experimental reference detector now fits pulse period and phase while allowi
 - Reports click-fit inlier count, median and 90th-percentile phase residual, within-20-ms percentage, and estimated missing grid slots.
 - Retains raw observed-gap CV as a diagnostic only; it is no longer used by itself to reject a candidate.
 - Uses conservative fit-quality gates before calculating guitar-to-reference timing.
+- When `--plots` is enabled, overlays unverified candidate click timestamps as red dashed lines on the waveform plot.
 - Adds synthetic coverage for missing clicks and outlier sequences.
 
 **Important:** a periodic guitar pattern can still mimic a click train. A good mathematical phase fit does not establish the acoustic source or prove that the candidate is a metronome. Candidate trains still require waveform/audio review; mono-source separation is not guaranteed.
