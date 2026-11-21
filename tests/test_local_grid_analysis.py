@@ -11,6 +11,19 @@ def beat_grid(period=0.5, count=40, start=0.0):
 
 
 class LocalGridTests(unittest.TestCase):
+    def test_fitted_windows_without_onsets_return_insufficient_events(self):
+        # The beat tracker has enough events to fit local windows, but all of
+        # those windows are separated from the two guitar onsets.
+        beats = beat_grid(count=24, start=20.0)
+        onsets = np.array([0.0, 100.0])
+        result = analyze_local_grid(onsets, beats, window_seconds=12, hop_seconds=6)
+        self.assertEqual(result["local_grid_status"], "insufficient_events")
+        self.assertTrue(result["local_grid_windows"])
+        self.assertEqual(result["local_grid_events"], [])
+        self.assertEqual(result["local_grid_summary"]["event_count"], 0)
+        self.assertEqual(result["local_grid_summary"]["unassigned_event_count"], 2)
+        self.assertNotIn("p90_absolute_residual_ms", result["local_grid_summary"])
+
     def test_perfect_grid_has_near_zero_residuals(self):
         beats = beat_grid()
         onsets = beats + 0.0

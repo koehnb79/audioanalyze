@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-"""Guitar Rhythm Analyzer 0.9.3.1-dev: local pulse and mathematical-grid diagnostics."""
+"""Guitar Rhythm Analyzer 0.9.4.2-dev: local-grid and metronome-reference diagnostics."""
 from __future__ import annotations
-import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile
+import argparse, csv, json, math, re, shutil, sqlite3, subprocess, sys, tempfile, traceback
 from datetime import datetime, timezone
+from contextlib import closing
 from pathlib import Path
 from typing import Optional
 import librosa
 import numpy as np
 from local_grid_analysis import analyze_local_grid
+from metronome_reference_analysis import detect_metronome_reference
+from pulse_hypothesis_analysis import build_pulse_hypotheses
+from missed_beat_grid_analysis import missed_beat_tolerant_grid
 
 AUDIO_EXTENSIONS = {'.wav','.mp3','.flac','.m4a','.aac','.ogg','.aiff','.aif'}
 VIDEO_EXTENSIONS = {'.mp4','.mov','.mkv','.avi','.webm','.mpeg','.mpg','.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
-ANALYSIS_VERSION = '0.9.3.1-dev'
+ANALYSIS_VERSION = '0.9.4.2-dev'
 
 
 def extract_video_audio(video_path: Path, wav_path: Path) -> None:
@@ -114,22 +118,90 @@ def tempo_windows(y: np.ndarray, sr: int, window_seconds: float=30.0, hop_second
     return out
 
 
-def plot_diagnostics(y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray], out: Path, stem: str) -> Optional[str]:
+def plot_diagnostics(
+    y: np.ndarray, sr: int, onsets: np.ndarray, phrases: list[np.ndarray],
+    out: Path, stem: str, candidate_clicks: Optional[np.ndarray]=None,
+    local_grid_windows: Optional[list[dict]]=None,
+    local_grid_events: Optional[list[dict]]=None,
+) -> Optional[str]:
+    """Save waveform, local-grid overlay, interval, and signed-residual diagnostics."""
     try:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         out.mkdir(parents=True,exist_ok=True)
         times=np.arange(y.size)/sr
-        fig,(ax1,ax2)=plt.subplots(2,1,figsize=(13,6),sharex=False,constrained_layout=True)
+        fig,(ax1,ax2,ax3)=plt.subplots(
+            3,1,figsize=(14,9),sharex=False,
+            gridspec_kw={'height_ratios':[2.2,1.2,1.0]},constrained_layout=True
+        )
         step=max(1,int(sr/3000))
-        ax1.plot(times[::step],y[::step],linewidth=.45)
-        for t in onsets: ax1.axvline(t,alpha=.28,linewidth=.6)
-        ax1.set(title='Waveform with detected onsets',xlabel='Time (s)',ylabel='Amplitude')
+        ax1.plot(times[::step],y[::step],linewidth=.45,color='0.35')
+        for t in onsets:
+            ax1.axvline(t,alpha=.18,linewidth=.5,color='0.45')
+        # Overlay the fitted local beat grids. Overlapping windows are deduplicated
+        # by timestamp so the plot remains readable.
+        beat_positions=set()
+        eighth_positions=set()
+        for window in local_grid_windows or []:
+            period=float(window.get('beat_period_seconds') or 0)
+            phase=float(window.get('phase_seconds') or 0)
+            start=float(window.get('start_seconds') or 0)
+            end=float(window.get('end_seconds') or 0)
+            if period<=0:
+                continue
+            first=int(np.ceil((start-phase)/period))
+            last=int(np.floor((end-phase)/period))
+            for index in range(first,last+1):
+                beat_positions.add(round(phase+index*period,4))
+            step_eighth=period/2.0
+            first=int(np.ceil((start-phase)/step_eighth))
+            last=int(np.floor((end-phase)/step_eighth))
+            for index in range(first,last+1):
+                t=round(phase+index*step_eighth,4)
+                # Keep only half-beat positions; modulo 1 on a rounded
+                # integer is always zero and would silently suppress every eighth.
+                beat_position=(t-phase)/period
+                if abs(beat_position-round(beat_position)) > 1e-6:
+                    eighth_positions.add(t)
+        for index,t in enumerate(sorted(eighth_positions)):
+            ax1.axvline(t,alpha=.28,linewidth=.55,linestyle=':',color='tab:blue',
+                        label='Local eighth-note grid' if index==0 else None)
+        for index,t in enumerate(sorted(beat_positions)):
+            ax1.axvline(t,alpha=.65,linewidth=.85,linestyle='-',color='tab:blue',
+                        label='Local beat grid' if index==0 else None)
+        if candidate_clicks is not None and len(candidate_clicks):
+            for index,t in enumerate(candidate_clicks):
+                ax1.axvline(t,alpha=.9,linewidth=1.0,linestyle='--',color='tab:red',
+                            label='Unverified click candidate' if index==0 else None)
+        handles,labels=ax1.get_legend_handles_labels()
+        if handles:
+            ax1.legend(fontsize=7,ncol=3,loc='upper right')
+        ax1.set(title='Waveform: detected onsets, fitted local grid, and unverified click candidates',
+                xlabel='Time (s)',ylabel='Amplitude')
         for i,p in enumerate(phrases):
-            if p.size>1: ax2.scatter(p[1:],np.diff(p),s=12,label=f'Phrase {i+1}')
-        ax2.set(title='Inter-onset intervals within detected phrases',xlabel='Time of second onset (s)',ylabel='Interval (s)')
-        if len(phrases)<=12 and phrases: ax2.legend(fontsize=7,ncol=3)
+            if p.size>1:
+                ax2.scatter(p[1:],np.diff(p),s=12,label=f'Phrase {i+1}')
+        ax2.set(title='Inter-onset intervals within detected phrases',
+                xlabel='Time of second onset (s)',ylabel='Interval (s)')
+        if len(phrases)<=12 and phrases:
+            ax2.legend(fontsize=7,ncol=3)
+        residuals=np.asarray([
+            float(event['signed_residual_ms']) for event in (local_grid_events or [])
+            if event.get('signed_residual_ms') is not None
+        ],dtype=float)
+        if residuals.size:
+            ax3.hist(residuals,bins=np.arange(-105,110,5),edgecolor='0.25',linewidth=.5)
+            ax3.axvline(0,color='black',linewidth=.9)
+            ax3.axvline(float(np.median(residuals)),color='tab:red',linestyle='--',
+                        linewidth=1.0,label=f'Median {np.median(residuals):.1f} ms')
+            ax3.legend(fontsize=7)
+            ax3.set(title='Signed local-grid residuals (negative = early; positive = late)',
+                    xlabel='Residual (ms)',ylabel='Events')
+        else:
+            ax3.text(.5,.5,'No local-grid event residuals available',
+                     ha='center',va='center',transform=ax3.transAxes)
+            ax3.set_axis_off()
         target=out/(stem+'_onsets.png')
         fig.savefig(target,dpi=130)
         plt.close(fig)
@@ -250,15 +322,17 @@ def pulse_analysis(y, sr, onsets, mode='self-paced', reference_bpm=None):
     beat_coverage=(float((beats[-1]-beats[0])/duration*100)
                    if len(beats)>=2 else None)
     grid_metrics=fitted_grid_metrics(onsets,beats)
+    missed_beat_grid_metrics=missed_beat_tolerant_grid(beats)
     local_grid_metrics=analyze_local_grid(onsets,beats)
     return {
       **grid_metrics,
+      **missed_beat_grid_metrics,
       **local_grid_metrics,
       'analysis_mode':mode,'pulse_source':source,'pulse_confidence':'tempo_estimate_only',
       'pulse_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'reference_candidate_bpm':None,'self_paced_candidate_bpm':round(bpm,3) if bpm and math.isfinite(bpm) else None,
       'pulse_times_seconds_json':json.dumps(beats.round(4).tolist()),
-      'pulse_interval_cv_percent':round(cv(beat_intervals),3) if beat_intervals.size else None,
+      'pulse_interval_cv_percent':round(beat_cv,3) if beat_cv is not None else None,
       'pulse_autocorrelation_candidates_json':json.dumps(autocorr_candidates,separators=(',',':')),
       'pulse_autocorrelation_top_bpm':autocorr_candidates[0]['bpm'] if autocorr_candidates else None,
       'tracker_vs_autocorrelation_octave_adjusted_difference_percent':octave_equivalent_difference(bpm,autocorr_candidates[0]['bpm']) if autocorr_candidates else None,
@@ -300,6 +374,17 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     if onsets.size: onsets=onsets[np.r_[True,np.diff(onsets)>=0.045]]
     phrases,gap_threshold=phrase_groups(onsets)
     pulse_metrics=pulse_analysis(y,sr,onsets,mode,reference_bpm)
+    # Only attempt independent click detection for recordings explicitly tagged
+    # by the user. Repeated drum transients in other recordings are not a click reference.
+    if re.search(r'\[Metronome\]', path.stem, flags=re.IGNORECASE):
+        pulse_metrics.update(detect_metronome_reference(y, sr, onsets))
+    else:
+        pulse_metrics.update({
+            'metronome_detection_status': 'not_requested_by_recording_tag',
+            'metronome_candidate_count': 0,
+            'metronome_candidate_times_seconds_json': '[]',
+            'metronome_detection_note': 'Independent click detection is attempted only for filenames tagged [Metronome].',
+        })
     tempo_profile=tempo_windows(y,sr)
     window_tempos=np.asarray([x['tempo_bpm'] for x in tempo_profile],dtype=float)
     all_intervals=np.diff(onsets)
@@ -313,6 +398,11 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     valid_all=all_intervals[(all_intervals>=0.045)&(all_intervals<=3.0)]
     tempo=librosa.feature.tempo(onset_envelope=env,sr=sr,hop_length=hop,aggregate=None)
     tempo=np.asarray(tempo,dtype=float).reshape(-1); tempo=tempo[np.isfinite(tempo)&(tempo>0)]
+    pulse_metrics.update(build_pulse_hypotheses(
+        pulse_metrics.get('pulse_bpm'),
+        finite(np.median(tempo)) if tempo.size else None,
+        json.loads(pulse_metrics.get('pulse_autocorrelation_candidates_json','[]'))
+    ))
     phrase_cvs=[p['interval_cv_percent'] for p in phrase_stats if p['interval_cv_percent'] is not None]
     phrase_medians=[p['median_interval_seconds'] for p in phrase_stats if p['median_interval_seconds'] is not None]
     if onsets.size < min_onsets:
@@ -326,7 +416,11 @@ def analyze_recording(path: Path, min_duration: float=3.0, min_onsets: int=5, pl
     file_stat=path.stat()
     annotation=load_recording_annotations(path.parent).get(path.name,('uncertain',''))
     recording_date_value,recording_date_source=recording_date(path)
-    plot_path=plot_diagnostics(y,sr,onsets,phrases,plot_dir,path.stem) if plot_dir else None
+    candidate_clicks=np.asarray(json.loads(pulse_metrics.get('metronome_candidate_times_seconds_json','[]')),dtype=float)
+    plot_path=plot_diagnostics(
+        y,sr,onsets,phrases,plot_dir,path.stem,candidate_clicks,
+        pulse_metrics.get('local_grid_windows'),pulse_metrics.get('local_grid_events')
+    ) if plot_dir else None
     return {
       'filename':path.name,'path':str(path.resolve()),'recording_context':annotation[0],'recording_context_notes':annotation[1],'media_type':'video' if path.suffix.lower() in VIDEO_EXTENSIONS else 'audio',
       'file_modified_local':datetime.fromtimestamp(file_stat.st_mtime).astimezone().isoformat(timespec='seconds'),
@@ -360,14 +454,19 @@ def save_results(rows: list[dict], output: Path) -> None:
     if not rows:
         print('No recordings were successfully analyzed; no result files written.')
         return
-    fields=list(rows[0])
+    # Later recordings may add optional fields (for example, metronome-reference metrics).
+    # Build a stable union so DictWriter can serialize heterogeneous result rows.
+    fields=list(dict.fromkeys(key for row in rows for key in row.keys()))
     with (output/'rhythm_measurements.csv').open('w',newline='',encoding='utf-8') as f:
         w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(rows)
     (output/'rhythm_measurements.json').write_text(json.dumps(rows,indent=2),encoding='utf-8')
-    with sqlite3.connect(output/'rhythm_history.sqlite') as db:
-        db.execute('CREATE TABLE IF NOT EXISTS analysis_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, analyzed_at_utc TEXT NOT NULL, analysis_version TEXT NOT NULL, filename TEXT NOT NULL, result_json TEXT NOT NULL)')
-        now=datetime.now(timezone.utc).isoformat(timespec='seconds')
-        db.executemany('INSERT INTO analysis_runs (analyzed_at_utc,analysis_version,filename,result_json) VALUES (?,?,?,?)',[(now,ANALYSIS_VERSION,r['filename'],json.dumps(r)) for r in rows])
+    # sqlite3.Connection's context manager commits/rolls back but does not
+    # close the connection; close it explicitly to avoid ResourceWarnings.
+    with closing(sqlite3.connect(output/'rhythm_history.sqlite')) as db:
+        with db:
+            db.execute('CREATE TABLE IF NOT EXISTS analysis_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, analyzed_at_utc TEXT NOT NULL, analysis_version TEXT NOT NULL, filename TEXT NOT NULL, result_json TEXT NOT NULL)')
+            now=datetime.now(timezone.utc).isoformat(timespec='seconds')
+            db.executemany('INSERT INTO analysis_runs (analyzed_at_utc,analysis_version,filename,result_json) VALUES (?,?,?,?)',[(now,ANALYSIS_VERSION,r['filename'],json.dumps(r)) for r in rows])
     print(f'Results saved in {output.resolve()} (CSV, JSON, SQLite).')
 
 
@@ -402,11 +501,14 @@ def main() -> int:
             cv_text=f"{r['within_phrase_interval_cv_percent']:.2f}%" if r['within_phrase_interval_cv_percent'] is not None else 'n/a'
             print(f"  {r['detected_onsets']} onsets; {r['phrase_count']} phrases; within-phrase CV {cv_text}; quality {r['quality_flag']}")
         except Exception as e:
-            errors.append({'file':str(p),'error':str(e)}); print(f'  SKIPPED: {e}',file=sys.stderr)
+            errors.append({'file':str(p),'error':str(e),'exception_type':type(e).__name__,'traceback':traceback.format_exc()}); print(f'  SKIPPED: {e}',file=sys.stderr)
     save_results(rows,args.output)
     if errors:
         (args.output/'analysis_errors.json').write_text(json.dumps(errors,indent=2),encoding='utf-8')
         print(f'{len(errors)} file(s) skipped; see analysis_errors.json')
+    else:
+        stale_errors=args.output/'analysis_errors.json'
+        if stale_errors.exists(): stale_errors.unlink()
     print('\nImportant: phrase boundaries and onset detections are heuristic. Inspect plots and compare similar playing styles; these measurements are not a validated clinical or motor assessment.')
     return 0 if rows else 1
 

@@ -1,5 +1,100 @@
 # Guitar Rhythm Analyzer
 
+## Missed-beat-tolerant global grid (experimental)
+
+A new additive diagnostic, `missed_beat_grid_*`, fits a recording-wide pulse grid
+while allowing detected beat timestamps to skip up to three underlying grid slots.
+It reports the fitted BPM, beat residual distribution, estimated missing slots,
+candidate fit cost, and a conservative flag for close 2x/3x pulse aliases. Candidate
+complexity is penalized in proportion to the actual number of inserted grid slots,
+rather than simply counting intervals that contain a gap. Alias checks compare timing
+fit quality separately from that complexity penalty, so a simpler grid does not hide
+an equally good faster-pulse explanation.
+
+The existing `fitted_grid_bpm` and `beat_grid_*` fields are intentionally unchanged
+and continue to use the legacy consecutive-detection ordinal fit for historical
+comparability. The new global fit is also separate from the overlapping local-grid
+analysis, which can follow tempo changes within a recording.
+
+A sequence with every other beat absent is intrinsically ambiguous: the timestamps
+alone cannot distinguish a slower true pulse from a faster pulse with systematic
+missed detections. The new metric reports the least-complex grid while flagging plausible 2x/3x
+aliases through `missed_beat_grid_pulse_alias_ambiguous`. The legacy
+`missed_beat_grid_octave_ambiguous` remains specifically about 2x relationships. It is still
+based on the same audio-derived beat tracker, not an independent clock.
+
+Synthetic tests cover regular beats, a skipped detection, timing jitter, 2x and 3x
+faster-pulse aliases, systematic alternate-beat omission, and insufficient input.
+
+## Pulse interpretation diagnostics (experimental)
+
+The analyzer now reports competing pulse estimates without automatically choosing
+the intended musical beat. The new `pulse_hypothesis_*` fields preserve the
+beat-tracker estimate, phrase-estimator median, and onset-envelope autocorrelation
+candidates, and explicitly identify estimates that are approximately related by
+half-time/double-time. `pulse_hypothesis_selected_bpm` intentionally remains null:
+the software cannot determine the musician's intended meter from periodicity alone.
+
+Metric naming clarification:
+
+- `beat_grid_*` describes detected beat-track timestamps against a fitted
+  constant-period grid.
+- `onset_quarter_grid_*` compares guitar onsets with four equal subdivisions
+  per fitted beat period. It is **not** a quarter-note-only accuracy metric.
+- Local-grid event `beat_grid_*` residual fields describe distance to the
+  nearest fitted beat; `signed_residual_ms` describes distance to the selected
+  beat/subdivision position.
+
+These are algorithm-derived comparisons, not independent ground truth. Use
+listening or manually annotated beat timestamps to decide which pulse level is
+musically intended. The legacy fields remain unchanged for backwards compatibility.
+
+## Version 0.9.4.2-dev (local-grid diagnostic overlays and reliability fixes)
+
+This refinement adds visual context to the local-grid analysis and hardens result handling.
+
+- Adds a three-panel diagnostic plot: waveform with fitted local beat/eighth-note grids and unverified click candidates, phrase inter-onset intervals, and signed local-grid residual histogram.
+- Deduplicates overlapping grid timestamps in the waveform overlay. Eighth-note positions are displayed separately from beat positions.
+- Returns `insufficient_events` when beat-grid windows were fitted but no guitar onsets can be assigned, preserving the fitted windows without calculating statistics over empty residual arrays.
+- Builds CSV columns from the union of keys across all result rows so optional metronome fields appearing later in a batch are retained.
+- Restores temporary test import stubs after importing the analyzer and explicitly closes the SQLite connection after saving.
+- Adds regression coverage for the empty-event case and diagnostics/result serialization.
+
+The 18 ms subdivision tolerance remains an exploratory setting, not a validated universal threshold. Local-grid residuals compare onsets with a grid estimated from the same recording; they are not independent ground-truth timing errors. Inspect plots and compare like passages before drawing conclusions.
+
+## Version 0.9.4.1-dev (missed-click-tolerant reference fitting)
+
+The experimental reference detector now fits pulse period and phase while allowing observed gaps to be integer multiples of the underlying period. This addresses missed transient detections without treating every long gap as an irregular click interval.
+
+- Searches a bounded 40–240 BPM period range and refines candidate period/phase using robust inlier fitting.
+- Reports click-fit inlier count, median and 90th-percentile phase residual, within-20-ms percentage, and estimated missing grid slots.
+- Retains raw observed-gap CV as a diagnostic only; it is no longer used by itself to reject a candidate.
+- Uses conservative fit-quality gates before calculating guitar-to-reference timing.
+- When `--plots` is enabled, overlays unverified candidate click timestamps as red dashed lines on the waveform plot.
+- Adds synthetic coverage for missing clicks and outlier sequences.
+
+**Important:** a periodic guitar pattern can still mimic a click train. A good mathematical phase fit does not establish the acoustic source or prove that the candidate is a metronome. Candidate trains still require waveform/audio review; mono-source separation is not guaranteed.
+
+## Version 0.9.4.0-dev (experimental independent metronome reference)
+
+The v0.9.4 development branch adds an experimental click-train detector for recordings explicitly tagged `[Metronome]` in the filename.
+
+- Builds short-window spectral signatures around detected transients and searches for a repeated signature.
+- Checks whether the candidate transient train is sufficiently regular before treating it as a possible click reference.
+- Excludes candidate click events from the guitar-event list before calculating guitar-to-click timing. In a mono mix, a guitar attack coincident with a click may also be excluded; reliable source separation is not guaranteed.
+- Reports signed beat-relative timing residuals, median absolute error, 90th-percentile error, and percentages within 10, 20, 30, and 50 ms.
+- Reports sixteenth-grid residuals separately. This is a nearest-grid diagnostic, not proof that a particular note was intended on that subdivision.
+- Leaves non-`[Metronome]` recordings untouched and records why independent reference analysis was not attempted.
+- Adds synthetic tests for perfect alignment, early/late offsets, subdivision-vs-beat distinction, irregular clicks, and insufficient reference events.
+
+**Important validation limit:** a repeated guitar attack pattern can resemble a metronome click train. A candidate click train must be reviewed against the audio and diagnostic plot. These measurements should not be treated as verified synchronization accuracy until click detection and guitar/click separation are confirmed for the recording. A known BPM alone still does not provide independent beat phase.
+
+Run tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Version 0.9.3.1-dev (local-grid validation corrections)
 
 The v0.9.3 development branch builds on the v0.9.2 grid-analysis branch. It retains the v0.9.2 fields for comparison and adds a separate local-grid event report:
