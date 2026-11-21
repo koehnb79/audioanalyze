@@ -5,9 +5,11 @@
 A new additive diagnostic, `missed_beat_grid_*`, fits a recording-wide pulse grid
 while allowing detected beat timestamps to skip up to three underlying grid slots.
 It reports the fitted BPM, beat residual distribution, estimated missing slots,
-candidate fit cost, and a conservative flag for close competing octave-related fits.
-The interpretation note explicitly warns that a faster pulse with systematic missed
-detections can be indistinguishable from the selected slower pulse using timestamps alone.
+candidate fit cost, and a conservative flag for close 2x/3x pulse aliases. Candidate
+complexity is penalized in proportion to the actual number of inserted grid slots,
+rather than simply counting intervals that contain a gap. Alias checks compare timing
+fit quality separately from that complexity penalty, so a simpler grid does not hide
+an equally good faster-pulse explanation.
 
 The existing `fitted_grid_bpm` and `beat_grid_*` fields are intentionally unchanged
 and continue to use the legacy consecutive-detection ordinal fit for historical
@@ -16,12 +18,12 @@ analysis, which can follow tempo changes within a recording.
 
 A sequence with every other beat absent is intrinsically ambiguous: the timestamps
 alone cannot distinguish a slower true pulse from a faster pulse with systematic
-missed detections. The new metric marks close half/double-time alternatives rather
-than claiming to resolve that question. It is still based on the same audio-derived
-beat tracker, not an independent clock.
+missed detections. The new metric reports the least-complex grid while flagging
+plausible 2x/3x aliases rather than claiming to resolve that question. It is still
+based on the same audio-derived beat tracker, not an independent clock.
 
-Synthetic tests cover regular beats, a skipped detection, timing jitter, systematic
-alternate-beat omission, and insufficient input.
+Synthetic tests cover regular beats, a skipped detection, timing jitter, 2x and 3x
+faster-pulse aliases, systematic alternate-beat omission, and insufficient input.
 
 ## Pulse interpretation diagnostics (experimental)
 
