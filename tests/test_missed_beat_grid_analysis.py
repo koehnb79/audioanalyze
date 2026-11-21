@@ -10,8 +10,9 @@ class MissedBeatGridTests(unittest.TestCase):
         beats = 0.12 + np.arange(12) * 0.5
         result = missed_beat_tolerant_grid(beats)
         # A 240 BPM pulse with every other beat missed fits the same timestamps.
-        self.assertEqual(result["missed_beat_grid_status"], "octave_ambiguous")
+        self.assertEqual(result["missed_beat_grid_status"], "pulse_alias_ambiguous")
         self.assertTrue(result["missed_beat_grid_octave_ambiguous"])
+        self.assertTrue(result["missed_beat_grid_pulse_alias_ambiguous"])
         self.assertAlmostEqual(result["missed_beat_grid_bpm"], 120.0, places=2)
         self.assertEqual(result["missed_beat_grid_missing_slots_estimate"], 0)
         self.assertLess(result["missed_beat_grid_median_abs_error_ms"], 0.01)
@@ -43,14 +44,16 @@ class MissedBeatGridTests(unittest.TestCase):
         result = missed_beat_tolerant_grid(beats)
         self.assertAlmostEqual(result["missed_beat_grid_bpm"], 120.0, places=2)
         self.assertTrue(result["missed_beat_grid_octave_ambiguous"])
-        self.assertEqual(result["missed_beat_grid_status"], "octave_ambiguous")
+        self.assertTrue(result["missed_beat_grid_pulse_alias_ambiguous"])
+        self.assertEqual(result["missed_beat_grid_status"], "pulse_alias_ambiguous")
 
     def test_three_x_faster_alias_is_reported(self):
         beats = 0.12 + np.arange(10) * 0.75
         result = missed_beat_tolerant_grid(beats)
         self.assertAlmostEqual(result["missed_beat_grid_bpm"], 80.0, places=2)
-        self.assertTrue(result["missed_beat_grid_octave_ambiguous"])
-        self.assertEqual(result["missed_beat_grid_status"], "octave_ambiguous")
+        self.assertFalse(result["missed_beat_grid_octave_ambiguous"])
+        self.assertTrue(result["missed_beat_grid_pulse_alias_ambiguous"])
+        self.assertEqual(result["missed_beat_grid_status"], "pulse_alias_ambiguous")
 
     def test_too_few_beats_do_not_produce_a_fit(self):
         result = missed_beat_tolerant_grid([0.1, 0.6, 1.1])
