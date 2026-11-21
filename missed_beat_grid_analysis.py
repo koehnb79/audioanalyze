@@ -45,19 +45,27 @@ def _fit_candidate(beats: np.ndarray, period: float) -> dict | None:
         return None
 
     normalized = np.abs(residuals) / period
-    missed_fraction = float(np.mean(gaps > 1))
     fractional_interval_error = np.abs(np.diff(beats) / period - gaps)
-    cost = float(np.median(normalized) +
-                 0.10 * np.mean(normalized) +
-                 0.10 * np.mean(fractional_interval_error) +
-                 0.10 * missed_fraction)
+    fit_error = float(np.median(normalized) +
+                      0.10 * np.mean(normalized) +
+                      0.10 * np.mean(fractional_interval_error))
+    missing_slots = int(np.sum(np.maximum(gaps - 1, 0)))
+    total_grid_steps = int(np.sum(gaps))
+    missing_slot_fraction = (
+        float(missing_slots / total_grid_steps) if total_grid_steps else 0.0
+    )
+    # Complexity is proportional to the actual number of inserted grid slots,
+    # not merely the number of intervals that contain at least one gap.
+    cost = float(fit_error + 0.25 * missing_slot_fraction)
     return {
         "period": period,
         "phase": phase,
         "indices": indices,
         "residuals": residuals,
         "gaps": gaps,
-        "missed_fraction": missed_fraction,
+        "missing_slots": missing_slots,
+        "missing_slot_fraction": missing_slot_fraction,
+        "fit_error": fit_error,
         "cost": cost,
     }
 
@@ -83,8 +91,9 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
         "missed_beat_grid_residuals_ms_json": "[]",
         "missed_beat_grid_interpretation_note": (
             "The selected period is the least-cost explanation of detected beat timestamps. "
-            "A faster pulse with systematic missed detections can be mathematically indistinguishable; "
-            "timestamps alone cannot establish the intended musical beat."
+            "A 2x or 3x faster pulse with systematic missed detections may fit these timestamps "
+            "equally well. The least-complex grid is reported, but timestamps alone cannot establish "
+            "the intended musical beat."
         ),
     }
     if beats.size < 4:
@@ -111,14 +120,20 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
 
     candidates.sort(key=lambda item: item["cost"])
     best = candidates[0]
-    octave_alternatives = [
+    # Compare timing fit independently of the complexity penalty. A cleaner,
+    # slower grid can win the score while a 2x/3x faster pulse fits the same
+    # timestamps just as well with systematic missed detections.
+    pulse_alias_alternatives = [
         candidate for candidate in candidates[1:]
-        if (1.8 <= candidate["period"] / best["period"] <= 2.2 or
-            1.8 <= best["period"] / candidate["period"] <= 2.2)
-        and candidate["cost"] <= best["cost"] + 0.04
+        if any(
+            abs(candidate["period"] * factor / best["period"] - 1.0) <= 0.06
+            or abs(best["period"] * factor / candidate["period"] - 1.0) <= 0.06
+            for factor in (2.0, 3.0)
+        )
+        and candidate["fit_error"] <= best["fit_error"] + 0.01
     ]
-    ambiguous = bool(octave_alternatives)
-    missing_slots = int(np.sum(np.maximum(best["gaps"] - 1, 0)))
+    ambiguous = bool(pulse_alias_alternatives)
+    missing_slots = best["missing_slots"]
     residual_ms = best["residuals"] * 1000.0
     result.update({
         "missed_beat_grid_status": (
