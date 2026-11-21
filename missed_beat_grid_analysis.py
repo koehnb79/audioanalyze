@@ -87,6 +87,7 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
         "missed_beat_grid_p90_abs_error_ms": None,
         "missed_beat_grid_missing_slots_estimate": None,
         "missed_beat_grid_octave_ambiguous": None,
+        "missed_beat_grid_pulse_alias_ambiguous": None,
         "missed_beat_grid_candidate_cost": None,
         "missed_beat_grid_residuals_ms_json": "[]",
         "missed_beat_grid_interpretation_note": (
@@ -124,20 +125,22 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
     # slower grid can win the score while a 2x/3x faster pulse fits the same
     # timestamps just as well with systematic missed detections.
     pulse_alias_alternatives = [
-        candidate for candidate in candidates[1:]
-        if any(
+        (candidate, factor)
+        for candidate in candidates[1:]
+        for factor in (2.0, 3.0)
+        if (
             abs(candidate["period"] * factor / best["period"] - 1.0) <= 0.06
             or abs(best["period"] * factor / candidate["period"] - 1.0) <= 0.06
-            for factor in (2.0, 3.0)
         )
         and candidate["fit_error"] <= best["fit_error"] + 0.01
     ]
     ambiguous = bool(pulse_alias_alternatives)
+    octave_ambiguous = any(factor == 2.0 for _, factor in pulse_alias_alternatives)
     missing_slots = best["missing_slots"]
     residual_ms = best["residuals"] * 1000.0
     result.update({
         "missed_beat_grid_status": (
-            "octave_ambiguous" if ambiguous else "fitted_with_integer_gaps"
+            "pulse_alias_ambiguous" if ambiguous else "fitted_with_integer_gaps"
         ),
         "missed_beat_grid_bpm": round(60.0 / best["period"], 3),
         "missed_beat_grid_period_seconds": round(best["period"], 6),
@@ -149,7 +152,8 @@ def missed_beat_tolerant_grid(beat_times: Iterable[float]) -> dict:
             float(np.percentile(np.abs(residual_ms), 90)), 3
         ),
         "missed_beat_grid_missing_slots_estimate": missing_slots,
-        "missed_beat_grid_octave_ambiguous": ambiguous,
+        "missed_beat_grid_octave_ambiguous": octave_ambiguous,
+        "missed_beat_grid_pulse_alias_ambiguous": ambiguous,
         "missed_beat_grid_candidate_cost": round(best["cost"], 6),
         "missed_beat_grid_residuals_ms_json": json.dumps(
             np.round(residual_ms, 3).tolist()
