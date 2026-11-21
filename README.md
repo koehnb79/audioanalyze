@@ -18,8 +18,9 @@ analysis, which can follow tempo changes within a recording.
 
 A sequence with every other beat absent is intrinsically ambiguous: the timestamps
 alone cannot distinguish a slower true pulse from a faster pulse with systematic
-missed detections. The new metric reports the least-complex grid while flagging
-plausible 2x/3x aliases rather than claiming to resolve that question. It is still
+missed detections. The new metric reports the least-complex grid while flagging plausible 2x/3x
+aliases through `missed_beat_grid_pulse_alias_ambiguous`. The legacy
+`missed_beat_grid_octave_ambiguous` remains specifically about 2x relationships. It is still
 based on the same audio-derived beat tracker, not an independent clock.
 
 Synthetic tests cover regular beats, a skipped detection, timing jitter, 2x and 3x
